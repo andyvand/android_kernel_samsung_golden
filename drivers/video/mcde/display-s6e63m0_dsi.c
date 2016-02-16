@@ -29,7 +29,7 @@
 #include <video/mcde_display-sec-dsi.h>
 
 #include "smart_mtp_s6e63m0_dsi.h"
-#include "Display-s6e63m0_dsi_param.h"
+#include "display-s6e63m0_dsi_param.h"
 /* +452052 ESD recovery for DSI video */
 #include <linux/fb.h>
 #include <video/mcde_fb.h>
@@ -42,10 +42,7 @@
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #include <linux/earlysuspend.h>
 #endif
-
-// TODO: We must investigate the real origin of the screen tearing issue,
-// this is just a dirty hack I don't like anywhere
-#define VID_MODE_REFRESH_RATE 65
+#define VID_MODE_REFRESH_RATE 60
 
 //#undef dev_dbg
 //#define dev_dbg dev_info

@@ -1,0 +1,31 @@
+drivers/phone_svn/modemctl/modemctl.c:204:33: error: missing binary operator before token "defined"
+ #if defined(CONFIG_MODEM_U8500) defined (CONFIG_TARGET_LOCALE_EUR) ||  defined (CONFIG_ARIES_EUR) || defined(CONFIG_ARIES_LATONA)
+                                 ^
+drivers/phone_svn/modemctl/modemctl.c: In function 'modemctl_probe':
+drivers/phone_svn/modemctl/modemctl.c:767:21: error: dereferencing pointer to incomplete type 'struct modemctl_platform_data'
+  if(!pdata || !pdata->cfg_gpio) {
+                     ^
+drivers/phone_svn/modemctl/modemctl.c:789:7: error: implicit declaration of function 'kzalloc' [-Werror=implicit-function-declaration]
+  mc = kzalloc(sizeof(struct modemctl), GFP_KERNEL);
+       ^
+drivers/phone_svn/modemctl/modemctl.c:789:5: warning: assignment makes pointer from integer without a cast [-Wint-conversion]
+  mc = kzalloc(sizeof(struct modemctl), GFP_KERNEL);
+     ^
+drivers/phone_svn/modemctl/modemctl.c: At top level:
+drivers/phone_svn/modemctl/modemctl.c:139:13: warning: 'xmm_on' used but never defined
+ static void xmm_on(struct modemctl *);
+             ^
+drivers/phone_svn/modemctl/modemctl.c:140:13: warning: 'xmm_off' used but never defined
+ static void xmm_off(struct modemctl *);
+             ^
+drivers/phone_svn/modemctl/modemctl.c:141:13: warning: 'xmm_reset' used but never defined
+ static void xmm_reset(struct modemctl *);
+             ^
+drivers/phone_svn/modemctl/modemctl.c:142:13: warning: 'xmm_boot' used but never defined
+ static void xmm_boot(struct modemctl *);
+             ^
+cc1: some warnings being treated as errors
+make[3]: *** [drivers/phone_svn/modemctl/modemctl.o] Fout 1
+make[2]: *** [drivers/phone_svn/modemctl] Fout 2
+make[1]: *** [drivers/phone_svn] Fout 2
+make: *** [drivers] Fout 2
