@@ -65,6 +65,8 @@
 /* hscd magnetic registers */
 #define WHO_AM_I	0x0F
 
+#define RETRY_COUNT	5
+
 static struct i2c_driver hscd_driver;
 static struct i2c_client *this_client;
 #ifdef CONFIG_HAS_EARLYSUSPEND
@@ -81,6 +83,7 @@ static struct hscd_power_data hscd_power;
 static atomic_t flgEna;
 static atomic_t delay;
 static atomic_t flgSuspend;
+static int reset_cnt;
 
 
 static int hscd_i2c_readm(char *rxData, int length)
@@ -158,12 +161,12 @@ static int hscd_power_on(void)
 {
 	int err = 0;
 
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 	if (hscd_power.regulator_vdd) {
 		err = regulator_enable(hscd_power.regulator_vdd);
 		if (err) {
-			alps_errmsg("Couldn't enable VDD %d\n", __func__, err);
+			alps_errmsg("Couldn't enable VDD %d\n", err);
 			return err;
 		}
 	}
@@ -171,7 +174,7 @@ static int hscd_power_on(void)
 	if (hscd_power.regulator_vio) {
 		err = regulator_enable(hscd_power.regulator_vio);
 		if (err) {
-			alps_errmsg("Couldn't enable VIO %d\n", __func__, err);
+			alps_errmsg("Couldn't enable VIO %d\n", err);
 			return err;
 		}
 	}
@@ -180,29 +183,31 @@ static int hscd_power_on(void)
 	return err;
 }
 
+/*
 static int hscd_power_off(void)
 {
 	int err = 0;
 
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 	if (hscd_power.regulator_vdd) {
 		err = regulator_disable(hscd_power.regulator_vdd);
 		if (err) {
-			alps_errmsg("Couldn't disable VDD %d\n", __func__, err);
+			alps_errmsg("Couldn't disable VDD %d\n", err);
 			return err;
 		}
 	}
 	if (hscd_power.regulator_vio) {
 		err = regulator_disable(hscd_power.regulator_vio);
 		if (err) {
-			alps_errmsg("Couldn't disable VIO %d\n", __func__, err);
+			alps_errmsg("Couldn't disable VIO %d\n", err);
 			return err;
 		}
 	}
 
 	return err;
 }
+*/
 
 int hscd_self_test_A(void)
 {
@@ -211,7 +216,7 @@ int hscd_self_test_A(void)
 	if (atomic_read(&flgSuspend) == 1)
 		return -1;
 
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 	/* Control resister1 backup */
 	cr1[0] = HSCD_CTRL1;
@@ -292,16 +297,68 @@ int hscd_self_test_A(void)
 
 int hscd_self_test_B(void)
 {
-    if (atomic_read(&flgSuspend) == 1) return -1;
-	alps_info("is called\n", __func__);
+    if (atomic_read(&flgSuspend) == 1)
+		return -1;
+	alps_info("is called\n");
     return 0;
+}
+
+int hscd_activate(int flgatm, int flg, int dtime)
+{
+	u8 buf[2];
+
+	if (this_client == NULL)
+		return -EFAULT;
+
+	else if ((atomic_read(&delay) == dtime)
+				&& (atomic_read(&flgEna) == flg)
+				&& (flgatm == 1))
+		return -EFAULT;
+
+	alps_info("is called\n");
+
+	if (flg != 0) {
+		buf[0] = HSCD_CTRL3;	/* Soft Reset */
+		buf[1] = 0x80;
+		hscd_i2c_writem(buf, 2);
+		mdelay(5);
+
+		buf[0] = HSCD_CTRL4;	/* 15 bit signed value */
+		buf[1] = 0x90;
+		hscd_i2c_writem(buf, 2);
+		mdelay(1);
+
+		if (dtime <=  20)
+			buf[1] = (3 << 3);	/* 100Hz- 10msec */
+		else if (dtime <=  70)
+			buf[1] = (2 << 3);	/* 20Hz- 50msec */
+		else
+			buf[1] = (1 << 3);	/* 10Hz-100msec */
+
+		buf[0]  = HSCD_CTRL1;
+		buf[1] |= (1 << 7);
+		hscd_i2c_writem(buf, 2);
+		mdelay(1);
+	} else {
+		buf[0] = HSCD_CTRL1;	/* Sleep mode */
+		buf[1] = 0;
+		hscd_i2c_writem(buf, 2);
+		mdelay(1);
+	}
+
+	if (flgatm) {
+		atomic_set(&flgEna, flg);
+		atomic_set(&delay, dtime);
+	}
+
+        return 0;
 }
 
 int hscd_get_magnetic_field_data(int *xyz)
 {
 	int err = -1;
 	int i;
-	u8 sx[6];
+	u8 sx[6] = {0, };
 
 	if (atomic_read(&flgSuspend) == 1)
 		return err;
@@ -309,75 +366,48 @@ int hscd_get_magnetic_field_data(int *xyz)
 	sx[0] = HSCD_XOUT;
 
 	err = hscd_i2c_readm(sx, 6);
-	if (err < 0)
+	if (err < 0) {
+		alps_errmsg("Fail to read data from i2c\n");
 		return err;
+	}
 
 	for (i=0; i<3; i++) {
-		xyz[i] = (int) ((short)((sx[2*i+1] << 8) | (sx[2*i])));
+		xyz[i] = (int) ((short)((sx[2*i + 1] << 8) | (sx[2*i])));
+	}
+
+	if ((xyz[0] == 0) && (xyz[1] == 0) && (xyz[2] == 0)) {
+		reset_cnt++;
+		if (reset_cnt == RETRY_COUNT) {
+			alps_info("Raw data seems wrong. Reset...........\n");
+			hscd_activate(0, atomic_read(&flgEna), atomic_read(&delay));
+			reset_cnt = 0;
+		}
+	} else {
+		reset_cnt = 0;
 	}
 
 #ifdef ALPS_DEBUG
 	/*** DEBUG OUTPUT - REMOVE ***/
-	alps_dbgmsg("x = %d, y = %d, z = %d\n",xyz[0], xyz[1], xyz[2]);
+	alps_dbgmsg("x = %d, y = %d, z = %d\n", xyz[0], xyz[1], xyz[2]);
 	/*** <end> DEBUG OUTPUT - REMOVE ***/
 #endif
 
 	return err;
 }
 
-void hscd_activate(int flgatm, int flg, int dtime)
-{
-	u8 buf[2];
-
-	if (this_client == NULL)
-		return;
-	else if ((atomic_read(&delay) == dtime)
-				&& (atomic_read(&flgEna) == flg)
-				&& (flgatm == 1))
-		return;
-
-	alps_info("is called\n", __func__);
-
-	if (flg != 0)	flg = 1;
-
-	if (flg) {
-		buf[0] = HSCD_CTRL4;	/* 15 bit signed value */
-		buf[1] = 0x90;
-		hscd_i2c_writem(buf, 2);
-		mdelay(1);
-	}
-
-	if (dtime <=  20)
-		buf[1] = (3<<3);	/* 100Hz- 10msec */
-	else if (dtime <=  70)
-		buf[1] = (2<<3);	/* 20Hz- 50msec */
-	else
-		buf[1] = (1<<3);	/* 10Hz-100msec */
-
-	buf[0]  = HSCD_CTRL1;
-	buf[1] |= (flg<<7);
-
-	hscd_i2c_writem(buf, 2);
-	mdelay(1);
-
-	if (flgatm) {
-		atomic_set(&flgEna, flg);
-		atomic_set(&delay, dtime);
-	}
-}
-
+/*
 void hscd_register_init(void)
 {
 	u8  buf[2];
 
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 	buf[0] = HSCD_CTRL3;
 	buf[1] = 0x80;
 	hscd_i2c_writem(buf, 2);
 
 	mdelay(5);
-/*
+
 	atomic_set(&delay, 100);
 	hscd_activate(0, 1, atomic_read(&delay));
 	hscd_get_magnetic_field_data(v);
@@ -385,8 +415,8 @@ void hscd_register_init(void)
 	alps_dbgmsg("x = %d, y = %d, z = %d\n", v[0], v[1], v[2]);
 
 	hscd_activate(0, 0, atomic_read(&delay));
-*/
 }
+*/
 
 static ssize_t selftest_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -414,7 +444,7 @@ static ssize_t selftest_show(struct device *dev,
 	else
 		result2 = 0;
 
-	alps_info("%s: result, A = %d, B = %d\n", result1, result2);
+	alps_info("result, A = %d, B = %d\n", result1, result2);
 
 	return snprintf(buf, PAGE_SIZE, "%d, %d\n", result1, result2);
 }
@@ -532,13 +562,15 @@ static int hscd_probe(struct i2c_client *client,
 	int ret = 0;
 	struct device *magnetic_device = NULL;
 
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 	this_client = client;
+	reset_cnt = 0;
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
 		dev_err(&client->adapter->dev, "client not i2c capable\n");
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto exit;
 	}
 
 	/*
@@ -552,18 +584,18 @@ static int hscd_probe(struct i2c_client *client,
 
 	hscd_power.regulator_vdd = hscd_power.regulator_vio = NULL;
 	hscd_power.regulator_vdd = regulator_get(&client->dev, "vdd_alps");
-	if (IS_ERR(hscd_power.regulator_vdd)) {
-		ret = PTR_ERR(hscd_power.regulator_vdd);
+	if (hscd_power.regulator_vdd == NULL) {
+		ret = (int)(hscd_power.regulator_vdd != NULL);
 		hscd_power.regulator_vdd = NULL;
-		alps_errmsg("Failed to get hscd_i2c_vdd %d\n", __func__, ret);
+		alps_errmsg("Failed to get hscd_i2c_vdd %d\n", ret);
 		goto err_setup_regulator;
 	}
 
 	hscd_power.regulator_vio = regulator_get(&client->dev, "vio_mag");
-	if (IS_ERR(hscd_power.regulator_vio)) {
-		ret = PTR_ERR(hscd_power.regulator_vio);
+	if (hscd_power.regulator_vio == NULL) {
+		ret = (int)(hscd_power.regulator_vio != NULL);
 		hscd_power.regulator_vio = NULL;
-		alps_errmsg("Failed to get hscd_i2c_vio %d\n", __func__, ret);
+		alps_errmsg("Failed to get hscd_i2c_vio %d\n", ret);
 		goto err_setup_regulator;
 	}
 
@@ -571,18 +603,15 @@ static int hscd_probe(struct i2c_client *client,
 
 	/* read chip id */
 	ret = i2c_smbus_read_byte_data(this_client, WHO_AM_I);
-	alps_info("Device ID = 0x%x, Reading ID = 0x%x\n",
-		__func__, DEVICE_ID, ret);
+	alps_info("Device ID = 0x%x, Reading ID = 0x%x\n", DEVICE_ID, ret);
 
 	if (ret == DEVICE_ID) /* Normal Operation */
 		ret = 0;
 	else {
 		if (ret < 0)
-			alps_errmsg("i2c for reading chip id failed\n",
-			       __func__);
+			alps_errmsg("i2c for reading chip id failed\n");
 		else {
-			alps_errmsg("Device identification failed\n",
-			       __func__);
+			alps_errmsg("Device identification failed\n");
 			ret = -ENODEV;
 		}
 		goto err_setup_regulator;
@@ -599,7 +628,7 @@ static int hscd_probe(struct i2c_client *client,
 	atomic_set(&flgEna, 0);
 	atomic_set(&delay, 100);
 
-	alps_info("is Successful\n", __func__);
+	alps_info("is Successful\n");
 
 	return 0;
 
@@ -614,38 +643,50 @@ err_setup_regulator:
 	}
 exit:
 	this_client = NULL;
-	alps_errmsg("Failed!\n", __func__);
+	alps_errmsg("failed. (errno = %d)\n", ret);
 
 	return ret;
 }
 
 static int __devexit hscd_remove(struct i2c_client *client)
 {
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 	hscd_activate(0, 0, atomic_read(&delay));
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	unregister_early_suspend(&hscd_early_suspend_handler);
 #endif
 
+	if (hscd_power.regulator_vdd) {
+		regulator_disable(hscd_power.regulator_vdd);
+		regulator_put(hscd_power.regulator_vdd);
+	}
+	if (hscd_power.regulator_vio) {
+		regulator_disable(hscd_power.regulator_vio);
+		regulator_put(hscd_power.regulator_vio);
+	}
+    this_client = NULL;
+
 	return 0;
 }
 
 static int hscd_suspend(struct i2c_client *client, pm_message_t mesg)
 {
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 	atomic_set(&flgSuspend, 1);
-	hscd_activate(0, 0, atomic_read(&delay));
+	if (atomic_read(&flgEna))
+		hscd_activate(0, 0, atomic_read(&delay));
 	return 0;
 }
 
 static int hscd_resume(struct i2c_client *client)
 {
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 	atomic_set(&flgSuspend, 0);
-	hscd_activate(0, atomic_read(&flgEna), atomic_read(&delay));
+	if (atomic_read(&flgEna))
+		hscd_activate(0, atomic_read(&flgEna), atomic_read(&delay));
 
 	return 0;
 }
@@ -653,14 +694,14 @@ static int hscd_resume(struct i2c_client *client)
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void hscd_early_suspend(struct early_suspend *handler)
 {
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 	hscd_suspend(this_client, PMSG_SUSPEND);
 }
 
 static void hscd_early_resume(struct early_suspend *handler)
 {
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 	hscd_resume(this_client);
 }
@@ -693,25 +734,20 @@ static struct early_suspend hscd_early_suspend_handler = {
 
 static int __init hscd_init(void)
 {
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 	return i2c_add_driver(&hscd_driver);
 }
 
 static void __exit hscd_exit(void)
 {
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 	i2c_del_driver(&hscd_driver);
 }
 
 module_init(hscd_init);
 module_exit(hscd_exit);
-
-EXPORT_SYMBOL(hscd_self_test_A);
-EXPORT_SYMBOL(hscd_self_test_B);
-EXPORT_SYMBOL(hscd_get_magnetic_field_data);
-EXPORT_SYMBOL(hscd_activate);
 
 MODULE_DESCRIPTION("Alps HSCDTD Device");
 MODULE_AUTHOR("ALPS ELECTRIC CO., LTD.");

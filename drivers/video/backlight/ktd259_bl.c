@@ -24,7 +24,6 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
-#include <linux/mutex.h>
 #include <linux/fb.h>
 #include <linux/backlight.h>
 #include <linux/delay.h>
@@ -33,9 +32,8 @@
 #include <linux/earlysuspend.h>
 #include <video/ktd259x_bl.h>
 
-
 /* to be removed when driver works */
-/*#define dev_dbg	dev_info */
+//#define dev_dbg dev_info
 
 
 #define KTD259_BACKLIGHT_OFF		0
@@ -49,18 +47,17 @@
 #define T_LOW_NS       (200 + 10) /* Additional 10 as safety factor */
 #define T_HIGH_NS      (200 + 10) /* Additional 10 as safety factor */
 
-#define T_STARTUP_MS   1
 #define T_OFF_MS       3
 
 struct ktd259 {
 	unsigned int currentRatio;
 	unsigned int brightness;
 	const struct ktd259x_bl_platform_data *pd;
+	bool backlight_disabled;
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	struct early_suspend	earlysuspend;
 #endif
 };
-
 
 static int ktd259_set_brightness(struct backlight_device *bd)
 {
@@ -72,7 +69,14 @@ static int ktd259_set_brightness(struct backlight_device *bd)
 	int step_count = 0;
 	unsigned long irqFlags;
 
-	dev_dbg(&bd->dev, "%s fuction enter\n", __func__);
+	dev_dbg(&bd->dev, "%s function enter (%d->%d)\n", __func__,
+		pKtd259Data->brightness, reqBrightness);
+
+	/* Don't update backlight controller if the backlight is disabled (e.g. phone is suspended) */
+	if (pKtd259Data->backlight_disabled) {
+		dev_dbg(&bd->dev, "%s: backlight disabled\n", __func__);
+		goto exit_backlight_disabled;
+	}
 
 	if ((bd->props.power != FB_BLANK_UNBLANK) ||
 		(bd->props.fb_blank != FB_BLANK_UNBLANK)) {
@@ -87,8 +91,6 @@ static int ktd259_set_brightness(struct backlight_device *bd)
 		if (reqBrightness > pd->brightness_to_current_ratio[newCurrentRatio - 1])
 			break;
 	}
-
-	dev_info(&bd->dev,"brightness = %d, current ratio = %d\n",reqBrightness, newCurrentRatio);
 
 	if (newCurrentRatio > KTD259_MAX_CURRENT_RATIO) {
 		dev_warn(&bd->dev, "%s: new current ratio (%d) exceeds max (%d)\n",
@@ -108,7 +110,7 @@ static int ktd259_set_brightness(struct backlight_device *bd)
 				/* Switch on backlight. */
 				dev_dbg(&bd->dev, "%s: switching backlight on\n", __func__);
 				gpio_set_value(pd->ctrl_gpio, pd->ctrl_high);
-				msleep(T_STARTUP_MS);
+				ndelay(T_HIGH_NS);
 
 				/* Backlight is always at full intensity when switched on. */
 				currentRatio = KTD259_MAX_CURRENT_RATIO;
@@ -146,15 +148,17 @@ static int ktd259_set_brightness(struct backlight_device *bd)
 
 			local_irq_restore(irqFlags);
 
-			dev_dbg(&bd->dev, "%s: stepped current by %d\n", __func__, step_count);
+			dev_dbg(&bd->dev, "%s: new current ratio = %d; stepped by %d\n", __func__,
+				newCurrentRatio, step_count);
 
 		}
 
 		pKtd259Data->currentRatio = newCurrentRatio;
-		pKtd259Data->brightness   = reqBrightness;
 	}
 
-	dev_dbg(&bd->dev, "%s fuction exit\n", __func__);
+exit_backlight_disabled:
+
+	pKtd259Data->brightness   = reqBrightness;
 
 	return 0;
 }
@@ -174,23 +178,47 @@ static const struct backlight_ops ktd259_ops = {
 	.update_status  = ktd259_set_brightness,
 };
 
+/* Control function to switch the backlight on/off. May be called by suspend/resume or externally */
+static void ktd259_backlight_on_off(struct backlight_device *bd, bool on)
+{
+	struct ktd259 *pKtd259Data = bl_get_data(bd);
+
+	dev_dbg(&bd->dev, "%s function enter\n", __func__);
+
+	if (on){
+		pKtd259Data->backlight_disabled = false;
+		bd->props.brightness = pKtd259Data->brightness;
+		ktd259_set_brightness(bd);
+	} else {
+		pKtd259Data->backlight_disabled = true;
+		gpio_set_value(pKtd259Data->pd->ctrl_gpio, pKtd259Data->pd->ctrl_low);
+		pKtd259Data->currentRatio = KTD259_BACKLIGHT_OFF;
+	}
+}
+
+
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void ktd259_early_suspend(struct early_suspend *earlysuspend)
 {
 	struct ktd259 *pKtd259Data = container_of(earlysuspend,
 						struct ktd259,
 						earlysuspend);
+	printk("%s function enter\n", __func__);
 
-	/* Ensures backlight is turned off */
-	gpio_set_value(pKtd259Data->pd->ctrl_gpio, pKtd259Data->pd->ctrl_low);
+	/* Ignore suspend if external backlight control is used */
+	if (pKtd259Data->pd->external_bl_control == false)
+		ktd259_backlight_on_off(pKtd259Data->pd->bd, false);
 }
 static void ktd259_late_resume(struct early_suspend *earlysuspend)
 {
 	struct ktd259 *pKtd259Data = container_of(earlysuspend,
 						struct ktd259,
 						earlysuspend);
+	printk("%s function enter\n", __func__);
 
-	/* backlight should be turned on when required */
+	/* Ignore resume if external backlight control is used */
+	if (pKtd259Data->pd->external_bl_control == false)
+		ktd259_backlight_on_off(pKtd259Data->pd->bd, true);
 }
 #endif
 
@@ -199,10 +227,11 @@ static int ktd259_probe(struct platform_device *pdev)
 	struct backlight_properties props;
 	struct backlight_device *ktd259_backlight_device;
 	struct ktd259 *pKtd259Data;
+	struct ktd259x_bl_platform_data *pd;
 
 	int ret = 0;
 
-	dev_dbg(&pdev->dev, "%s fuction enter\n", __func__);
+	dev_dbg(&pdev->dev, "%s function enter\n", __func__);
 
 	pKtd259Data = kmalloc(sizeof(struct ktd259), GFP_KERNEL);
 	memset(pKtd259Data, 0, sizeof(struct ktd259));
@@ -235,9 +264,18 @@ static int ktd259_probe(struct platform_device *pdev)
 	pKtd259Data->earlysuspend.suspend = ktd259_early_suspend;
 	pKtd259Data->earlysuspend.resume  = ktd259_late_resume;
 	register_early_suspend(&pKtd259Data->earlysuspend);
+	pKtd259Data->backlight_disabled = false;
 #endif
 
-	dev_dbg(&pdev->dev, "%s fuction exit\n", __func__);
+	pd = pKtd259Data->pd;
+	pd->bd = ktd259_backlight_device;
+
+	/* If external control of the backlight has been requested, then provide interface function
+	    in backlight platform data */
+	if (pd->external_bl_control)
+		pd->bl_on_off = ktd259_backlight_on_off;
+
+	dev_dbg(&pdev->dev, "%s function exit\n", __func__);
 
 	return ret;
 }

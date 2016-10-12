@@ -24,6 +24,10 @@
 #include <linux/sysdev.h>
 #include <linux/wakelock.h>
 
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN) || defined(CONFIG_MACH_JANICE_CHN) || defined(CONFIG_MACH_CODINA_CHN) || defined (CONFIG_MACH_GAVINI_CHN)
+#include <mach/sec_param.h>
+#endif
+
 #define ANDROID_ALARM_PRINT_ERROR (1U << 0)
 #define ANDROID_ALARM_PRINT_INIT_STATUS (1U << 1)
 #define ANDROID_ALARM_PRINT_TSET (1U << 2)
@@ -150,6 +154,88 @@ static void alarm_enqueue_locked(struct alarm *alarm)
 	rb_link_node(&alarm->node, parent, link);
 	rb_insert_color(&alarm->node, &base->alarms);
 }
+
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN) || defined(CONFIG_MACH_JANICE_CHN) || defined(CONFIG_MACH_CODINA_CHN) || defined (CONFIG_MACH_GAVINI_CHN)
+/* 0|1234|56|78|90|12
+   1|2010|01|01|00|00
+   en yyyy mm dd hh mm */
+int alarm_en_exit;
+EXPORT_SYMBOL(alarm_en_exit);
+
+struct rtc_wkalrm autoboot_alm;
+EXPORT_SYMBOL(autoboot_alm);
+#define BOOTALM_BIT_EN       0
+#define BOOTALM_BIT_YEAR     1
+#define BOOTALM_BIT_MONTH    5
+#define BOOTALM_BIT_DAY      7
+#define BOOTALM_BIT_HOUR     9
+#define BOOTALM_BIT_MIN     11
+#define BOOTALM_BIT_TOTAL   13
+
+int alarm_set_alarm(char *alarm_data)
+{
+	int ret;
+	struct rtc_wkalrm alm;
+	char buf_ptr[BOOTALM_BIT_TOTAL+1];
+	int bootalarm_bit = 0;
+
+	if (!alarm_rtc_dev) {
+		pr_alarm(ERROR,
+			"[%s] :no RTC,time will be lost on reboot\n",
+			__func__);
+		return -1;
+	}
+
+	pr_info("[alarm_set_alarm] :  using AlarmManager!\n");
+
+	strlcpy(buf_ptr, alarm_data, BOOTALM_BIT_TOTAL+1);
+
+	alm.time.tm_sec = 0;
+	alm.time.tm_min  =  (buf_ptr[BOOTALM_BIT_MIN]    - '0') * 10
+			+ (buf_ptr[BOOTALM_BIT_MIN+1]  - '0');
+	alm.time.tm_hour =  (buf_ptr[BOOTALM_BIT_HOUR]   - '0') * 10
+			+ (buf_ptr[BOOTALM_BIT_HOUR+1] - '0');
+	alm.time.tm_mday =  (buf_ptr[BOOTALM_BIT_DAY]    - '0') * 10
+			+ (buf_ptr[BOOTALM_BIT_DAY+1]  - '0');
+	alm.time.tm_mon  =  (buf_ptr[BOOTALM_BIT_MONTH]  - '0') * 10
+			+ (buf_ptr[BOOTALM_BIT_MONTH+1] - '0');
+	alm.time.tm_year =  (buf_ptr[BOOTALM_BIT_YEAR]   - '0') * 1000
+			+ (buf_ptr[BOOTALM_BIT_YEAR+1] - '0') * 100
+			+ (buf_ptr[BOOTALM_BIT_YEAR+2] - '0') * 10
+			+ (buf_ptr[BOOTALM_BIT_YEAR+3] - '0');
+
+	alm.enabled = (*buf_ptr == '1');
+	if (alm.enabled)
+		bootalarm_bit = 1;
+	else
+		bootalarm_bit = 0;
+
+	pr_info("[alarm_set_alarm] alm.enabled : %d, bootalarm_bit = %d\n",
+		alm.enabled, bootalarm_bit);
+	pr_info("[alarm_set_alarm] %d/%d/%d %d:%d:%d\n",
+		alm.time.tm_year, alm.time.tm_mon,
+		alm.time.tm_mday, alm.time.tm_hour,
+		alm.time.tm_min, alm.time.tm_sec);
+
+	alm.time.tm_min--;
+	alarm_en_exit = alm.enabled;
+	sec_set_param_value(__PARAM_INT_14, &bootalarm_bit);
+
+	if (alm.enabled) {
+		alm.time.tm_mon -= 1;
+		alm.time.tm_year -= 1900;
+	} else {
+		alm.time.tm_mon = 0;
+		alm.time.tm_year = 0;
+	}
+
+	autoboot_alm = alm;
+
+	ret = rtc_set_alarm_boot(alarm_rtc_dev, &alm);
+
+	return ret;
+}
+#endif
 
 /**
  * alarm_init - initialize an alarm
@@ -432,6 +518,23 @@ static int alarm_suspend(struct platform_device *pdev, pm_message_t state)
 			rtc_delta).tv_sec;
 
 		rtc_time_to_tm(rtc_alarm_time, &rtc_alarm.time);
+
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN) || defined(CONFIG_MACH_JANICE_CHN) || defined(CONFIG_MACH_CODINA_CHN) || defined (CONFIG_MACH_GAVINI_CHN)
+		rtc_tm_to_time(&rtc_current_rtc_time, &rtc_current_time);
+		pr_info("%s, [%d] %d/%d/%d %d:%d:%d\n", __func__,
+			rtc_alarm.enabled, rtc_alarm.time.tm_year-100,
+			rtc_alarm.time.tm_mon+1,
+			rtc_alarm.time.tm_mday, rtc_alarm.time.tm_hour,
+			rtc_alarm.time.tm_min, rtc_alarm.time.tm_sec);
+
+		if (rtc_alarm_time - rtc_current_time <= 60) {
+			pr_info("alarm_suspend : power_on_alarm_check = 1\n");
+		} else {
+			rtc_alarm_time -= 60;
+			rtc_time_to_tm(rtc_alarm_time, &rtc_alarm.time);
+			pr_info("alarm_suspend : power_on_alarm_check = 0\n");
+		}
+#endif
 		rtc_alarm.enabled = 1;
 		rtc_set_alarm(alarm_rtc_dev, &rtc_alarm);
 		rtc_read_time(alarm_rtc_dev, &rtc_current_rtc_time);
@@ -491,6 +594,19 @@ static int alarm_resume(struct platform_device *pdev)
 
 	alarm.enabled = 0;
 
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN) || defined(CONFIG_MACH_JANICE_CHN) || defined(CONFIG_MACH_CODINA_CHN) || defined (CONFIG_MACH_GAVINI_CHN)
+	if (alarm_en_exit) {
+		pr_info("%s, [%d] %d/%d/%d %d:%d:%d\n", __func__,
+			alarm.enabled, alarm.time.tm_year-100,
+			alarm.time.tm_mon+1, alarm.time.tm_mday,
+			alarm.time.tm_hour, alarm.time.tm_min,
+			alarm.time.tm_sec);
+		alarm.time.tm_min--;
+		alarm.enabled = 1;
+	}
+#endif
+
+	/* Write back value */
 	rtc_set_alarm(alarm_rtc_dev, &alarm);
 
 	spin_lock_irqsave(&alarm_slock, flags);

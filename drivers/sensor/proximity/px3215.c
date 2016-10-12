@@ -46,10 +46,9 @@
 #include <linux/regulator/consumer.h>
 #include <mach/board-sec-ux500.h>
 #include <mach/px3215.h>
+#include <linux/sensors_core.h>
 
 
-//#define PX3215C_DRV_NAME	"px3215"
-#define PX3215C_DRV_NAME		"dyna"
 #define DRIVER_VERSION		"1.9"
 
 #define PX3215C_NUM_CACHABLE_REGS	18
@@ -148,9 +147,6 @@ struct px3215_power_data {
 
 static struct px3215_power_data px3215_power;
 static struct i2c_client *this_client;
-
-extern int sensors_register(struct device *dev, void * drvdata,
-		struct device_attribute *attributes[], char *name);
 
 static u8 px3215_reg[PX3215C_NUM_CACHABLE_REGS] =
 	{0x00,0x01,0x02,0x0a,0x0b,0x0e,0x0f,
@@ -267,7 +263,7 @@ static int px3215_get_plthres(struct i2c_client *client)
 static int px3215_set_plthres(struct i2c_client *client, int val)
 {
 	int lsb, msb, err;
-	
+
 	msb = val >> 2;
 	lsb = val & PX3215C_PX_LTHL_MASK;
 	err = __px3215_write_reg(client, PX3215C_PX_LTHL,
@@ -293,7 +289,7 @@ static int px3215_get_phthres(struct i2c_client *client)
 static int px3215_set_phthres(struct i2c_client *client, int val)
 {
 	int lsb, msb, err;
-	
+
 	msb = val >> 2;
 	lsb = val & PX3215C_PX_HTHL_MASK;
 	err = __px3215_write_reg(client, PX3215C_PX_HTHL,
@@ -309,7 +305,7 @@ static int px3215_set_phthres(struct i2c_client *client, int val)
 static int px3215_set_configure(struct i2c_client *client, int val)
 {
 	int err;
-	
+
 	err = __px3215_write_reg(client, PX3215C_PX_CONFIGURE,
 		PX3215C_PX_CONFIGURE_MASK,
 		PX3215C_PX_CONFIGURE_SHIFT, val);
@@ -320,7 +316,7 @@ static int px3215_set_configure(struct i2c_client *client, int val)
 static int px3215_set_ledwaiting(struct i2c_client *client, int val)
 {
 	int err;
-	
+
 	err = __px3215_write_reg(client, PX3215C_PX_LEDWAITING,
 		PX3215C_PX_LEDWAITING_MASK,
 		PX3215C_PX_LEDWAITING_SHIFT, val);
@@ -347,7 +343,6 @@ static int px3215_get_intstat(struct i2c_client *client)
 	val &= PX3215C_INT_MASK;
 	return val >> PX3215C_INT_SHIFT;
 }
-
 
 static int px3215_get_px_value(struct i2c_client *client)
 {
@@ -439,11 +434,8 @@ done:
 static int proximity_adc_read(struct px3215_data *data)
 {
 	int sum[OFFSET_ARRAY_LENGTH];
-	int i = OFFSET_ARRAY_LENGTH-1;
-	int avg;
-	int min;
-	int max;
-	int total;
+	int i = OFFSET_ARRAY_LENGTH - 1;
+	int avg = 0, min = 0, max = 0, total = 0;
 
 	do {
 		msleep(50);
@@ -494,7 +486,7 @@ static int proximity_do_calibrate(struct px3215_data  *data,
 		}
 		/* update offest */
 		px3215_set_calib(data->client, data->offset_value);
-		
+
 		px3215_set_plthres(data->client,
 			PX_PROX_CAL_THREL);
 		px3215_set_phthres(data->client,
@@ -609,7 +601,7 @@ static ssize_t px3215_store_mode(struct device *dev,
 		return -EINVAL;
 
 	ret = px3215_set_mode(data->client, val);
-	
+
 	if (ret < 0)
 		return ret;
 	return count;
@@ -617,7 +609,6 @@ static ssize_t px3215_store_mode(struct device *dev,
 
 static DEVICE_ATTR(mode,S_IRUGO | S_IWUSR | S_IWGRP,
 		   px3215_show_mode, px3215_store_mode);
-
 
 /* Px data */
 static ssize_t px3215_show_pxvalue(struct device *dev,
@@ -720,7 +711,7 @@ static ssize_t px3215_em_read(struct device *dev,
 	struct px3215_data *data = i2c_get_clientdata(client);
 	int i;
 	u8 tmp;
-	
+
 	for (i = 0; i < ARRAY_SIZE(data->reg_cache); i++)
 	{
 		mutex_lock(&data->lock);
@@ -760,8 +751,8 @@ static DEVICE_ATTR(em, S_IRUGO | S_IWUSR | S_IWGRP,
 				   px3215_em_read, px3215_em_write);
 #endif
 
-static ssize_t proximity_enable_show(struct device *dev, 
-		struct device_attribute *attr, 
+static ssize_t proximity_enable_show(struct device *dev,
+		struct device_attribute *attr,
 		char *buf)
 {
 	struct input_dev *input = to_input_dev(dev);
@@ -769,25 +760,24 @@ static ssize_t proximity_enable_show(struct device *dev,
 	return sprintf(buf, "%d\n", (px3215_get_mode(data->client)) ? 1 : 0);
 }
 
-static ssize_t proximity_enable_store(struct device *dev, 
-		struct device_attribute *attr, 
+static ssize_t proximity_enable_store(struct device *dev,
+		struct device_attribute *attr,
 		const char *buf, size_t size)
 {
 	struct input_dev *input = to_input_dev(dev);
 	struct px3215_data *data = input_get_drvdata(input);
 	int enable = simple_strtoul(buf, NULL,10);
-	int err = 0;
-	if (enable)
-	{
+
+	if (enable) {
+		int err = 0;
+
 		err = proximity_open_calibration(data);
 		if (err < 0 && err != -ENOENT)
 			pr_err("%s: proximity_open_offset() failed\n",
 				__func__);
 		else {
-			
 			if (data->cal_result==1) {
-	
-				px3215_set_calib(data->client, 
+				px3215_set_calib(data->client,
 					data->offset_value);
 				px3215_set_plthres(data->client,
 					PX_PROX_CAL_THREL);
@@ -798,18 +788,16 @@ static ssize_t proximity_enable_store(struct device *dev,
 		}
 		input_report_abs(data->input, ABS_DISTANCE, 1);
 		input_sync(data->input);
-
 		px3215_set_mode(data->client, 2);
 		enable_irq(data->irq);
 		enable_irq_wake(data->irq);
 	} else {
 		disable_irq_wake(data->irq);
 		disable_irq(data->irq);
-		px3215_set_mode(data->client, 0);		
+		px3215_set_mode(data->client, 0);
 	}
 	return size;
 }
-
 
 static DEVICE_ATTR(enable, S_IRUGO | S_IWUSR | S_IWGRP,
 	proximity_enable_show, proximity_enable_store);
@@ -854,7 +842,6 @@ static void px3215_work_func(struct work_struct *work)
 	int min = 0, max = 0, avg = 0;
 	int i = 0;
 
-
 	for (i = 0; i < PROX_READ_NUM; i++) {
 		value = px3215_get_px_value(data->client);
 
@@ -880,16 +867,18 @@ static void px3215_work_func(struct work_struct *work)
 	data->avg[0] = min;
 	data->avg[1] = avg;
 	data->avg[2] = max;
-	
+
 }
+
 static ssize_t proximity_avg_show(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
 	struct px3215_data *data = dev_get_drvdata(dev);
-	
+
 	return sprintf(buf, "%d,%d,%d\n", data->avg[0], data->avg[1],
 				data->avg[2]);
 }
+
 static const struct attribute_group px3215_attr_group = {
 	.attrs = px3215_attributes,
 };
@@ -964,6 +953,7 @@ static ssize_t proximity_cal2_store(struct device *dev,
 done:
 	return size;
 }
+
 static struct device_attribute dev_attr_proximity_sensor_prox_cal2 =
 	__ATTR(prox_cal2, S_IRUGO | S_IWUSR | S_IWGRP,
 				NULL, proximity_cal2_store);
@@ -1016,6 +1006,7 @@ static ssize_t prox_offset_pass_show(struct device *dev,
 
 	return sprintf(buf, "%d\n", data->cal_result);
 }
+
 static struct device_attribute dev_attr_proximity_sensor_offset_pass =
 	__ATTR(prox_offset_pass, S_IRUGO | S_IWUSR | S_IWGRP,
 				prox_offset_pass_show, NULL);
@@ -1026,6 +1017,7 @@ static ssize_t prox_vendor_show(struct device *dev,
 {
 	return snprintf(buf, PAGE_SIZE, "%s\n", "LITEON");
 }
+
 static struct device_attribute dev_attr_proximity_sensor_vendor =
 	__ATTR(vendor, S_IRUSR | S_IRGRP, prox_vendor_show, NULL);
 
@@ -1035,6 +1027,7 @@ static ssize_t prox_name_show(struct device *dev,
 {
 	return snprintf(buf, PAGE_SIZE, "%s\n", "PX3315");
 }
+
 static struct device_attribute dev_attr_proximity_sensor_name =
 	__ATTR(name, S_IRUSR | S_IRGRP, prox_name_show, NULL);
 
@@ -1081,27 +1074,23 @@ static int px3215_init_client(struct i2c_client *client)
 /*
  * I2C layer
  */
-
 static irqreturn_t px3215_irq(int irq, void *data_)
 {
 	struct px3215_data *data = data_;
 	u8 int_stat;
 	int Pval;
-	
+
 	mutex_lock(&data->lock);
-
 	int_stat = px3215_get_intstat(data->client);
+
 	Pval = px3215_get_object(data->client,1);
-
-	printk("%s\n", Pval ? "obj near":"obj far");
-
+	pr_info("%s\n", Pval ? "obj near":"obj far");
 	input_report_abs(data->input, ABS_DISTANCE, !Pval);
 	input_sync(data->input);
 
 	schedule_work(&data->work_ptime);
 
 	mutex_unlock(&data->lock);
-
 	return IRQ_HANDLED;
 }
 
@@ -1112,32 +1101,41 @@ static int __devinit px3215_probe(struct i2c_client *client,
 	struct px3215_platform_data *pdata = client->dev.platform_data;
 	struct px3215_data *data;
 	struct device *proximity_device = NULL;
-	int err = 0;
-	int ret = 0;
-	int error = 0;
 
-	pr_info("[PX3215] probe\n");
+	int ret = 0;
+
+	pr_info("%s is called\n", __func__);
+
 	this_client = client;
 
-	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE))
-		return -EIO;
-	data = kzalloc(sizeof(struct px3215_data), GFP_KERNEL);
-	if (!data)
-		return -ENOMEM;
+	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE)) {
+		pr_err("%s: i2c functionality check failed!\n", __func__);
+		ret = -ENODEV;
+		return ret;
+	}
 
-	px3215_power.regulator_vdd = px3215_power.regulator_vio = NULL;
+	data = kzalloc(sizeof(struct px3215_data), GFP_KERNEL);
+	if (!data) {
+		pr_err("%s: failed to alloc memory for module data\n", __func__);
+		ret = -ENOMEM;
+		goto exit_kfree;
+	}
+
+	px3215_power.regulator_vdd = NULL;
+	px3215_power.regulator_vio = NULL;
 	px3215_power.regulator_vdd = regulator_get(&client->dev, "vdd_proxi");
 	if (IS_ERR(px3215_power.regulator_vdd)) {
 		ret = PTR_ERR(px3215_power.regulator_vdd);
 		pr_err("%s: failed to get vdd_proxi %d\n", __func__, ret);
 		goto err_setup_regulator;
 	}
+
 	px3215_power.regulator_vio = regulator_get(&client->dev, "vio_proxi");
 	if (IS_ERR(px3215_power.regulator_vio)) {
 		ret = PTR_ERR(px3215_power.regulator_vio);
 		pr_err("%s: failed to get vio_proxi %d\n", __func__, ret);
 		goto err_setup_regulator;
-		}
+	}
 
 	regulator_enable(px3215_power.regulator_vdd);
 	mdelay(15);
@@ -1153,39 +1151,48 @@ static int __devinit px3215_probe(struct i2c_client *client,
 	/* INT Settings */
 	data->irq = gpio_to_irq(data->gpio);
 	if (data->irq < 0) {
-		err = data->irq;
+		ret = data->irq;
 		pr_err("%s: Failed to convert GPIO %u to IRQ [errno=%d]",
-				__func__, data->gpio, err);
-		goto exit_kfree;
+				__func__, data->gpio, ret);
+		goto err_setup_regulator;
 	}
 
 	INIT_WORK(&data->work_ptime, px3215_work_func);
-	
+
 	/* initialize the PX3215C chip */
-	err = px3215_init_client(this_client);
-	if (err)
-		goto exit_kfree;
-	err = px3215_input_init(data);
-	if (err)
-		goto exit_kfree;
-	/* register sysfs hooks */
-	err = sysfs_create_group(&data->input->dev.kobj, &px3215_attr_group);
-	if (err)
+	ret = px3215_init_client(client);
+	if (ret < 0) {
+		pr_err("%s : Failed to init client\n", __func__);
+		goto err_setup_regulator;
+	}
+
+	/* create input device */
+	ret = px3215_input_init(data);
+	if (ret < 0) {
+		pr_err("%s : Failed to init input device\n", __func__);
 		goto exit_input;
-	error = sensors_register(proximity_device, data, proximity_attrs,
+	}
+
+	/* register sysfs hooks */
+	ret = sysfs_create_group(&data->input->dev.kobj, &px3215_attr_group);
+	if (ret < 0) {
+		pr_err("%s : could not create sysfs group\n", __func__);
+		goto exit_input;
+	}
+
+	ret = sensors_register(proximity_device, data, proximity_attrs,
 						"proximity_sensor");
-	if (error < 0) {
-		pr_err("%s: could not register gyro sensor device(%d).\n",
-					__func__, error);
+	if (ret < 0) {
+		pr_err("%s: could not register proximity sensor device\n", __func__);
 		goto exit_input;
 	}
 
     /* IRQ Register */
-	err = request_threaded_irq(data->irq, NULL, px3215_irq,
+	ret = request_threaded_irq(data->irq, NULL, px3215_irq,
 				 IRQF_TRIGGER_FALLING,
-				 "px3215", data);	
-	if (err) {
-		pr_err("%s: request_irq failed for taos\n", __func__);
+				 "px3215", data);
+	if (ret < 0) {
+		pr_err("%s: could not request threaded irq\n", __func__);
 		goto exit_input;
 	}
 
@@ -1205,10 +1212,6 @@ static int __devinit px3215_probe(struct i2c_client *client,
 exit_input:
 	px3215_input_fini(data);
 
-exit_kfree:
-	kfree(data);
-	return err;
-    
 err_setup_regulator:
 	if (px3215_power.regulator_vdd) {
 		regulator_disable(px3215_power.regulator_vdd);
@@ -1218,8 +1221,10 @@ err_setup_regulator:
 		regulator_disable(px3215_power.regulator_vio);
 		regulator_put(px3215_power.regulator_vio);
 	}
-
-	return err;
+exit_kfree:
+	kfree(data);
+	pr_info("%s : failed. (errno = %d)\n", __func__, ret);
+	return ret;
 }
 
 static int __devexit px3215_remove(struct i2c_client *client)
@@ -1228,18 +1233,29 @@ static int __devexit px3215_remove(struct i2c_client *client)
 	free_irq(data->irq, data);
 
 	sysfs_remove_group(&data->input->dev.kobj, &px3215_attr_group);
+
+	input_unregister_device(data->input);
+
+	if (px3215_power.regulator_vdd) {
+		regulator_disable(px3215_power.regulator_vdd);
+		regulator_put(px3215_power.regulator_vdd);
+	}
+
+	if (px3215_power.regulator_vio) {
+		regulator_disable(px3215_power.regulator_vio);
+		regulator_put(px3215_power.regulator_vio);
+	}
+
 	px3215_set_mode(client, 0);
 	kfree(i2c_get_clientdata(client));
 	return 0;
 }
 
-
 #define px3215_suspend	NULL
 #define px3215_resume		NULL
 
 static const struct i2c_device_id px3215_id[] = {
-	//{ "px3215", 0 },
-	{ "dyna", 0 },
+	{ PX3215C_DRV_NAME, 0 },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, px3215_id);

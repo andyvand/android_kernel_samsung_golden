@@ -397,7 +397,7 @@ int hscd_get_magnetic_field_data(int *xyz)
     return err;
 }
 
-void hscd_activate(int flgatm, int flg, int dtime)
+int hscd_activate(int flgatm, int flg, int dtime)
 {
     u8 buf[2];
 
@@ -423,6 +423,8 @@ void hscd_activate(int flgatm, int flg, int dtime)
         atomic_set(&flgEna, flg);
         atomic_set(&delay, dtime);
     }
+
+    return 0;
 }
 
 static void hscd_register_init(void)

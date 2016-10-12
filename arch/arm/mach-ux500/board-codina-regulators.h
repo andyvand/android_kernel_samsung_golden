@@ -19,4 +19,7 @@ extern struct ab8500_regulator_platform_data codina_ab8500_regulator_plat_data;
 extern struct regulator_init_data codina_ab8505_regulators[];
 extern struct ab8500_regulator_platform_data codina_ab8505_regulator_plat_data;
 
+extern struct regulator_init_data codina_ab8505_r0_4_regulators[];
+extern struct ab8500_regulator_platform_data codina_ab8505_r0_4_regulator_plat_data;
+
 #endif

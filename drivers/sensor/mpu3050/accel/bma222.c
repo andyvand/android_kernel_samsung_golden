@@ -107,8 +107,8 @@ static int bma222_resume(void *mlsl_handle,
 
 	/*Bandwidth */
 	result =
-	    MLSLSerialWriteSingle(mlsl_handle, pdata->address,
-				  ACCEL_BMA222_BW_REG, 0x0C);
+		MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+				ACCEL_BMA222_BW_REG, 0x09);
 	ERROR_CHECK(result);
 
 	/* Full Scale */
@@ -139,7 +139,9 @@ static int bma222_read(void *mlsl_handle,
 {
 	int result;
 	s8 x, y, z;
-	
+	static s8 prev_x, prev_y, prev_z;
+	static int is_first = 0;
+
 	result = MLSLSerialRead(mlsl_handle, pdata->address,
 				slave->reg, slave->len, data);
 
@@ -163,8 +165,31 @@ static int bma222_read(void *mlsl_handle,
 	return result;
 }
 
+static int bma222_init(void *mlsl_handle,
+		struct ext_slave_descr *slave,
+		struct ext_slave_platform_data *pdata)
+{
+	int result;
+	unsigned char reg = 0;
+
+
+/*	result =
+		MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+				ACCEL_BMA222_SFT_RST_REG, 0xB6);
+	ERROR_CHECK(result);
+
+	MLOSSleep(10);*/
+
+	result =
+		MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+				ACCEL_BMA222_SUSPEND_REG, 0x80);
+	ERROR_CHECK(result);
+
+	return result;
+}
+
 static struct ext_slave_descr bma222_descr = {
-	/*.init             = */ NULL,
+	/*.init             = */ bma222_init,
 	/*.exit             = */ NULL,
 	/*.suspend          = */ bma222_suspend,
 	/*.resume           = */ bma222_resume,

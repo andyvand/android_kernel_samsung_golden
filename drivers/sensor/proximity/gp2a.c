@@ -64,30 +64,31 @@
 #define REGS_OPMOD		0x04 /* Write Only */
 #define REGS_CON		0x06 /* Write Only */
 
-#define PROX_NONDETECT	0x40
-#define PROX_DETECT		0x0F
-
 #ifdef GP2AP002X_PROXIMITY_OFFSET
-#define PROX_NONDETECT_MODE1		0x43
-#define PROX_DETECT_MODE1		0x28
-#define PROX_NONDETECT_MODE2		0x48
-#define PROX_DETECT_MODE2		0x42
+#if defined(CONFIG_MACH_SEC_SKOMER)
+/* B1.5 mode */
+#define PROX_NONDETECT_MODE1	0x41
+#define PROX_DETECT_MODE1	0x2E
+#define PROX_NONDETECT_MODE2	0x4E
+#define PROX_DETECT_MODE2	0x2B
+#else
+/* B1 mode */
+#define PROX_NONDETECT_MODE1	0x43
+#define PROX_DETECT_MODE1	0x28
+#define PROX_NONDETECT_MODE2	0x48
+#define PROX_DETECT_MODE2	0x42
+#endif
 #define OFFSET_FILE_PATH	"/efs/prox_cal"
 #endif
 
 /* sensor type */
-#define PROXIMITY		1
 #define CHIP_DEV_NAME		"GP2AP002"
-#define CHIP_DEV_VENDOR	"SHARP"
-struct workqueue_struct *prox_wq;
+#define CHIP_DEV_VENDOR		"SHARP"
 
 enum {
 	LIGHT_ENABLED = BIT(0),
 	PROXIMITY_ENABLED = BIT(1),
 };
-
-static int nondetect;
-static int detect;
 
 /* driver data */
 struct gp2a_data {
@@ -103,6 +104,8 @@ struct gp2a_data {
 	struct workqueue_struct *wq;
 	struct work_struct work_prox;
 	char val_state;
+	int nondetect;
+	int detect;
 #ifdef GP2AP002X_PROXIMITY_OFFSET
 	char cal_mode;
 #endif
@@ -219,7 +222,7 @@ int gp2a_cal_mode_read_file(char *mode)
 		return err;
 	}
 	err = cal_mode_filp->f_op->read(cal_mode_filp,
-		(char *)&mode,
+		(char *)mode,
 		sizeof(u8), &cal_mode_filp->f_pos);
 
 	if (err != sizeof(u8)) {
@@ -287,16 +290,16 @@ static ssize_t prox_cal_write(struct device *dev,
 
 	if (sysfs_streq(buf, "1")) {
 		gp2a->cal_mode = 1;
-		nondetect = PROX_NONDETECT_MODE1;
-		detect = PROX_DETECT_MODE1;
+		gp2a->nondetect = PROX_NONDETECT_MODE1;
+		gp2a->detect = PROX_DETECT_MODE1;
 	} else if (sysfs_streq(buf, "2")) {
 		gp2a->cal_mode = 2;
-		nondetect = PROX_NONDETECT_MODE2;
-		detect = PROX_DETECT_MODE2;
+		gp2a->nondetect = PROX_NONDETECT_MODE2;
+		gp2a->detect = PROX_DETECT_MODE2;
 	} else if (sysfs_streq(buf, "0")) {
 		gp2a->cal_mode = 0;
-		nondetect = PROX_NONDETECT;
-		detect = PROX_DETECT;
+		gp2a->nondetect = PROX_NONDETECT;
+		gp2a->detect = PROX_DETECT;
 	} else {
 		pr_err("%s: invalid value %d\n", __func__, *buf);
 		return -EINVAL;
@@ -304,7 +307,7 @@ static ssize_t prox_cal_write(struct device *dev,
 
 	value = 0x08;
 	gp2a_i2c_write(gp2a, REGS_GAIN, &value);
-	value = nondetect;
+	value = gp2a->nondetect;
 	gp2a_i2c_write(gp2a, REGS_HYS, &value);
 	value = 0x04;
 	gp2a_i2c_write(gp2a, REGS_CYCLE, &value);
@@ -371,29 +374,27 @@ static ssize_t proximity_enable_store(struct device *dev,
 		return -EINVAL;
 	}
 
+	pr_info("%s, new_value = %d, old state = %d\n",
+		__func__, new_value, gp2a->power_state);
 	mutex_lock(&gp2a->power_lock);
-	gp2a_dbgmsg("new_value = %d, old state = %d\n",
-		    new_value,
-		    (gp2a->power_state & PROXIMITY_ENABLED) ? 1 : 0);
 	if (new_value && !(gp2a->power_state & PROXIMITY_ENABLED)) {
-		pr_info("%s, %d\n", __func__, __LINE__);
-
 #ifdef GP2AP002X_PROXIMITY_OFFSET
-		pr_info("%s, %d GP2AP002X_PROXIMITY_OFFSET\n", __func__, __LINE__);
+		pr_info("%s, %d GP2AP002X_PROXIMITY_OFFSET\n", __func__,
+		__LINE__);
 		err = gp2a_cal_mode_read_file(&gp2a->cal_mode);
 		if (err < 0 && err != -ENOENT)
 			pr_err("%s: cal_mode file read fail\n", __func__);
 
 		pr_info("%s: mode = %02x\n", __func__, gp2a->cal_mode);
 		if (gp2a->cal_mode == 2) {
-			nondetect = PROX_NONDETECT_MODE2;
-			detect = PROX_DETECT_MODE2;
+			gp2a->nondetect = PROX_NONDETECT_MODE2;
+			gp2a->detect = PROX_DETECT_MODE2;
 		} else if (gp2a->cal_mode == 1) {
-			nondetect = PROX_NONDETECT_MODE1;
-			detect = PROX_DETECT_MODE1;
+			gp2a->nondetect = PROX_NONDETECT_MODE1;
+			gp2a->detect = PROX_DETECT_MODE1;
 		} else {
-			nondetect = PROX_NONDETECT;
-			detect = PROX_DETECT;
+			gp2a->nondetect = PROX_NONDETECT;
+			gp2a->detect = PROX_DETECT;
 		}
 #endif
 		/* We send 1 for far status, 0 for close status */
@@ -411,22 +412,18 @@ static ssize_t proximity_enable_store(struct device *dev,
 
 		value = 0x08;
 		gp2a_i2c_write(gp2a, REGS_GAIN, &value);
-		value = nondetect;
+		value = gp2a->nondetect;
 		gp2a_i2c_write(gp2a, REGS_HYS, &value);
 		value = 0x04;
 		gp2a_i2c_write(gp2a, REGS_CYCLE, &value);
 
-		enable_irq_wake(gp2a->irq);
-
 		value = 0x03;
 		gp2a_i2c_write(gp2a, REGS_OPMOD, &value);
 		enable_irq(gp2a->irq);
+		enable_irq_wake(gp2a->irq);
 		value = 0x00;
 		gp2a_i2c_write(gp2a, REGS_CON, &value);
-
 	} else if (!new_value && (gp2a->power_state & PROXIMITY_ENABLED)) {
-		pr_info("%s, %d\n", __func__, __LINE__);
-
 		disable_irq_wake(gp2a->irq);
 		disable_irq(gp2a->irq);
 		value = 0x02;
@@ -460,22 +457,21 @@ static void gp2a_prox_work_func(struct work_struct *work)
 	struct gp2a_data *gp2a = container_of(work,
 		struct gp2a_data, work_prox);
 	u8 vo, value;
-	if (gp2a->irq != 0) {
-		disable_irq_wake(gp2a->irq);
+
+	if (gp2a->irq != 0)
 		disable_irq(gp2a->irq);
-	} else {
+	else
 		return ;
-	}
 
 	gp2a_i2c_read(gp2a, REGS_PROX, &vo);
 	vo = 0x01 & vo;
 	if (vo == gp2a->val_state) {
-		if (!vo) {	/* close */
+		if (!vo) {	/* far */
 			vo = 0x01;
-			value = nondetect;
-		} else {	/* far */
+			value = gp2a->nondetect;
+		} else {	/* close */
 			vo = 0x00;
-			value = detect;
+			value = gp2a->detect;
 		}
 		gp2a_i2c_write(gp2a, REGS_HYS, &value);
 		gp2a->val_state = vo;
@@ -491,10 +487,8 @@ static void gp2a_prox_work_func(struct work_struct *work)
 
 	value = 0x18;
 	gp2a_i2c_write(gp2a, REGS_CON, &value);
-	if (gp2a->irq != 0) {
+	if (gp2a->irq != 0)
 		enable_irq(gp2a->irq);
-		enable_irq_wake(gp2a->irq);
-	}
 	value = 0x00;
 	gp2a_i2c_write(gp2a, REGS_CON, &value);
 }
@@ -561,7 +555,7 @@ static int gp2a_setup_irq(struct gp2a_data *gp2a)
 
 	value = 0x08;
 	gp2a_i2c_write(gp2a, REGS_GAIN, &value);
-	value = nondetect;
+	value = gp2a->nondetect;
 	gp2a_i2c_write(gp2a, REGS_HYS, &value);
 	value = 0x04;
 	gp2a_i2c_write(gp2a, REGS_CYCLE, &value);
@@ -589,9 +583,6 @@ static int gp2a_i2c_probe(struct i2c_client *client,
 	u8 vo;
 	pr_info("%s: is starting!(%d)\n", __func__, __LINE__);
 
-	nondetect = PROX_NONDETECT;
-	detect = PROX_DETECT;
-
 	if (!pdata) {
 		pr_err("%s: missing pdata!\n", __func__);
 		err = -ENODEV;
@@ -612,6 +603,8 @@ static int gp2a_i2c_probe(struct i2c_client *client,
 		goto done;
 	}
 
+	gp2a->nondetect = PROX_NONDETECT;
+	gp2a->detect = PROX_DETECT;
 	gp2a->pdata = pdata;
 	gp2a->i2c_client = client;
 	i2c_set_clientdata(client, gp2a);
@@ -619,18 +612,19 @@ static int gp2a_i2c_probe(struct i2c_client *client,
 	if (pdata->hw_setup)
 		err = pdata->hw_setup(&client->dev);
 	if (err < 0) {
-		pr_err("%s: hw_setup failed(%d)!\n", __func__, err);
+		pr_err("%s: gp2a_power_setup failed(%d)!\n", __func__, err);
 		err = -ENODEV;
 		goto done;
 	}
 	if (pdata->hw_pwr) {
 		pdata->hw_pwr(1);
-		msleep(15);
+		msleep(20);
 	}
 
+	/* Check if the device is mounted or not */
 	err = gp2a_i2c_read(gp2a, REGS_PROX, &vo);
 	if (err < 0) {
-		pr_err("%s: fail to read i2c data.\n", __func__);
+		pr_err("%s: fail to read i2c data.(%d)\n", __func__, err);
 		goto err_i2c_read;
 	}
 
@@ -689,7 +683,7 @@ static int gp2a_i2c_probe(struct i2c_client *client,
 	input_report_abs(gp2a->proximity_input_dev, ABS_DISTANCE, 1);
 	input_sync(gp2a->proximity_input_dev);
 
-	pr_info("%s: is successful!(%d)\n", __func__, __LINE__);
+	pr_info("%s : is successful !\n", __func__);
 	return 0;
 
 	/* error, unwind it all */
@@ -709,7 +703,7 @@ err_i2c_read:
 		pdata->hw_teardown();
 	kfree(gp2a);
 done:
-	pr_info("%s: done(%d)\n", __func__, __LINE__);
+	pr_info("%s : failed\n", __func__);
 	return err;
 }
 
@@ -720,7 +714,6 @@ static int gp2a_suspend(struct device *dev)
 
 static int gp2a_resume(struct device *dev)
 {
-
 	return 0;
 }
 
@@ -742,7 +735,6 @@ static void gp2a_i2c_shutdown(struct i2c_client *client)
 		mutex_destroy(&gp2a->power_lock);
 
 		wake_lock_destroy(&gp2a->prx_wake_lock);
-
 		kfree(gp2a);
 	}
 }

@@ -29,7 +29,7 @@
 #include <mach/db8500-regs.h>
 	 
 
-#define PRCMU_DPI_CLK_FREQ	50000000
+#define PRCMU_DPI_CLK_FREQ	66560000
 	 
 #ifdef CONFIG_FB_MCDE
 
@@ -315,12 +315,18 @@ static struct notifier_block display_nb = {
 static void update_mcde_opp(struct device *dev,
 					struct mcde_opp_requirements *reqs)
 {
+	static s32 requested_qos;
 	s32 req_ape = PRCMU_QOS_DEFAULT_VALUE;
 
 	if (reqs->num_rot_channels && reqs->num_overlays > 1)
 		req_ape = PRCMU_QOS_MAX_VALUE;
 
-	prcmu_qos_update_requirement(PRCMU_QOS_APE_OPP, dev_name(dev), req_ape);
+	if (req_ape != requested_qos) {
+		requested_qos = req_ape;
+		prcmu_qos_update_requirement(PRCMU_QOS_APE_OPP,
+						dev_name(dev), req_ape);
+		pr_info("Requested APE QOS = %d\n", req_ape);
+	}
 }
 
 int __init init_janice_display_devices(void)
@@ -334,7 +340,7 @@ int __init init_janice_display_devices(void)
 		pr_warning("Failed to register dss notifier\n");
 	 
 	if (display_initialized_during_boot) {
-		generic_display0.power_mode = MCDE_DISPLAY_PM_ON;
+		generic_display0.power_mode = MCDE_DISPLAY_PM_STANDBY;
 		janice_dpi_pri_display_info.platform_enabled = 1;
 	}
 

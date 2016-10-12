@@ -13,14 +13,7 @@
 #include <mach/reboot_reasons.h>
 #include <linux/mfd/abx500/ux500_sysctrl.h>
 
-static inline void arch_idle(void)
-{
-	/*
-	 * This should do all the clock switching
-	 * and wait for interrupt tricks
-	 */
-	cpu_do_idle();
-}
+#define arch_idle() cpu_do_idle()
 
 static inline void arch_reset(char mode, const char *cmd)
 {

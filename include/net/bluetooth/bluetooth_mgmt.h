@@ -122,7 +122,12 @@ static inline void bacpy(bdaddr_t *dst, bdaddr_t *src)
 
 void baswap(bdaddr_t *dst, bdaddr_t *src);
 char *batostr(bdaddr_t *ba);
+#ifdef CONFIG_BT_CG2900
+int strtoba(char *str, bdaddr_t *ba);
+int bacmp3(bdaddr_t *ba1, bdaddr_t *ba2);
+#else
 bdaddr_t *strtoba(char *str);
+#endif
 
 /* Common socket structures and functions */
 

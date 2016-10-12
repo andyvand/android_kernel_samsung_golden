@@ -47,6 +47,7 @@
 #define INS_CURR_TIMEOUT		(3 * HZ)
 
 #if defined(CONFIG_MACH_JANICE)
+#define USE_COMPENSATING_VOLTAGE_SAMPLE_FOR_CHARGING
 #define FGRES_HWREV_02			133
 #define FGRES_HWREV_02_CH		133
 #define FGRES_HWREV_03			121
@@ -416,6 +417,9 @@ static enum power_supply_property ab8500_fg_props[] = {
 	POWER_SUPPLY_PROP_CHARGE_NOW,
 	POWER_SUPPLY_PROP_CAPACITY,
 	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
+	#if defined(CONFIG_MACH_JANICE) || 	defined(CONFIG_MACH_CODINA) || 	defined(CONFIG_MACH_GAVINI)
+	POWER_SUPPLY_PROP_CAPACITY_RAW, 
+	#endif
 	POWER_SUPPLY_PROP_VOLTAGE_MAX,
 	POWER_SUPPLY_PROP_VOLTAGE_MIN,
 };
@@ -1192,7 +1196,7 @@ static int ab8500_comp_fg_bat_voltage(struct ab8500_fg *di,
 		vbat += ab8500_fg_bat_voltage(di, true);
 		i++;
 		dev_dbg(di->dev, "LoadComp Vbat avg [%d] %d\n", i, vbat/i);
-		msleep(5);
+		usleep_range(5000, 5001);
 	} while (!ab8500_fg_inst_curr_done(di) &&
 		i <= WAIT_FOR_INST_CURRENT_MAX);
 
@@ -2208,6 +2212,7 @@ static int ab8500_fg_reenable_charging(struct ab8500_fg *di)
 			di->reenable_charing++;
 	}
 
+
 	return 0;
 }
 
@@ -2254,7 +2259,7 @@ static void ab8500_fg_algorithm(struct ab8500_fg *di)
 
 	ab8500_fg_reenable_charging(di);
 
-	if(di->discharge_state != AB8500_FG_DISCHARGE_INITMEASURING)
+	if (di->discharge_state != AB8500_FG_DISCHARGE_INITMEASURING)
 		pr_info("[FG_DATA] %dmAh/%dmAh %d%% (Prev %dmAh %d%%) %dmV %d "
 			"%d %dmA "
 			"%dmA %d %d %d %d %d %d %d %d %d %d %d %d %d "
@@ -2394,6 +2399,31 @@ static irqreturn_t ab8500_fg_cc_int_calib_handler(int irq, void *_di)
 	struct ab8500_fg *di = _di;
 	di->calib_state = AB8500_FG_CALIB_END;
 	queue_delayed_work(di->fg_wq, &di->fg_periodic_work, 0);
+	return IRQ_HANDLED;
+}
+
+static irqreturn_t ab8500_battery_over_voltage_handler(int irq, void *_di)
+{
+	/* struct ab8500_btemp *di = _di; */
+
+	/*
+	  Sometimes battery ovv interrupt occur in the below 4.3V
+	  even though ovv threshold is 4.75V
+	  So, We igonre this interrupt.
+	  AB8500 charger supports CV charging,
+	  so battery voltage is maintained below the voltage
+	  which is set in the ChVoltLevel(0x0B40) register.
+	*/
+
+	/*
+	  di->events.battery_ovv = true;
+	  di->events.battery_ovv_time = jiffies ;
+	  queue_work(di->btemp_wq,&di->battery_over_voltage_work);
+	*/
+
+	struct ab8500_fg *di = _di;
+
+	dev_info(di->dev, "Battery over voltage interrupt seen\n");
 	return IRQ_HANDLED;
 }
 
@@ -2538,7 +2568,13 @@ static int ab8500_fg_get_property(struct power_supply *psy,
 		else
 			val->intval = di->bat_cap.prev_level;
 		break;
+#if defined(CONFIG_MACH_JANICE) || 	defined(CONFIG_MACH_CODINA) || 	defined(CONFIG_MACH_GAVINI)
+	case POWER_SUPPLY_PROP_CAPACITY_RAW:
 
+		val->intval = (di->bat_cap.mah  * 1000) / di->bat_cap.max_mah ;
+		printk("raw soc = %d",val->intval);
+		break;
+#endif
 	/* Instantaneous vbat ADC value */
 	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
 		di->vbat = ab8500_fg_bat_voltage(di, false);
@@ -2590,9 +2626,9 @@ static int ab8500_fg_get_ext_psy_data(struct device *dev, void *data)
 		if (ext->get_property(ext, prop, &ret))
 			continue;
 
-		if(ext->type == POWER_SUPPLY_TYPE_MAINS)
+		if (ext->type == POWER_SUPPLY_TYPE_MAINS)
 			continue;
-		
+
 		switch (prop) {
 		case POWER_SUPPLY_PROP_LPM_MODE:
 			/* LPM_MODE */
@@ -2606,13 +2642,8 @@ static int ab8500_fg_get_ext_psy_data(struct device *dev, void *data)
 		case POWER_SUPPLY_PROP_REINIT_CAPACITY:
 		/* Re-initialize battery capacity */
 			if (ret.intval && di->reinit_capacity) {
-				if (di->lpm_chg_mode)
-					queue_delayed_work(di->fg_wq,
-					&di->fg_reinit_param_work, 2*HZ);
-				else
-					queue_delayed_work(di->fg_wq,
-					&di->fg_reinit_param_work, 5*HZ);
-
+				queue_delayed_work(di->fg_wq,
+				   &di->fg_reinit_param_work, 0);
 				di->reinit_capacity = false;
 			}
 
@@ -3092,6 +3123,7 @@ static int __devexit ab8500_fg_remove(struct platform_device *pdev)
 /* ab8500 fg driver interrupts and their respective isr */
 static struct ab8500_fg_interrupts ab8500_fg_irq[] = {
 	{"NCONV_ACCU", ab8500_fg_cc_convend_handler},
+	{"BATT_OVV", ab8500_battery_over_voltage_handler},
 	{"LOW_BAT_F", ab8500_fg_lowbatf_handler},
 	{"CC_INT_CALIB", ab8500_fg_cc_int_calib_handler},
 	{"CCEOC", ab8500_fg_cc_data_end_handler},
@@ -3162,7 +3194,7 @@ static int __devinit ab8500_fg_probe(struct platform_device *pdev)
 			di->smd_on = 1;
 	}
 #endif
-	
+
 	di->init_capacity = true;
 	di->reinit_capacity = true;
 

@@ -540,7 +540,6 @@ static ssize_t cpufreq_min_limit_store(struct kobject *kobj,
 	int val;
 	unsigned int cpufreq_level;
 	ssize_t ret = -EINVAL;
-	int cpu;
 
 	if (sscanf(buf, "%d", &val) != 1) {
 		printk(KERN_ERR "%s: Invalid cpufreq format\n", __func__);

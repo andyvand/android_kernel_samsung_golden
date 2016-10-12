@@ -48,3 +48,6 @@ snd-soc-u5500-objs := u5500.o
 obj-y += snd-soc-u5500.o
 endif
 
+ifdef CONFIG_SND_SOC_UX500_AB8500_MID_WIDGET
+snd-soc-ux500-machine-objs += ux500_ab8500_mid.o
+endif

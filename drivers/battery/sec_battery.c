@@ -10,7 +10,6 @@
  * published by the Free Software Foundation.
  */
 
-//#define DEBUG
 
 #include <linux/battery/sec_battery.h>
 
@@ -64,6 +63,7 @@ static int sec_bat_set_charge(
 		battery->charging_start_time = 0;
 		battery->charging_passed_time = 0;
 		battery->charging_next_time = 0;
+		battery->charging_fullcharged_time = 0;
 		battery->full_check_cnt = 0;
 	}
 
@@ -382,6 +382,14 @@ static bool sec_bat_battery_cable_check(struct sec_battery_info *battery)
 
 	battery->present = true;
 
+	if (battery->health == POWER_SUPPLY_HEALTH_UNSPEC_FAILURE) {
+		battery->health = POWER_SUPPLY_HEALTH_GOOD;
+		if (battery->status == POWER_SUPPLY_STATUS_NOT_CHARGING) {
+			battery->status = POWER_SUPPLY_STATUS_CHARGING;
+			sec_bat_set_charge(battery, true);
+		}
+	}
+
 	dev_dbg(battery->dev, "%s: Battery Connected\n", __func__);
 
 	if (battery->pdata->cable_check_type &
@@ -495,7 +503,7 @@ static bool sec_bat_check_recharge(struct sec_battery_info *battery)
 			dev_info(battery->dev,
 				"%s: Re-charging by SOC (%d)\n",
 				__func__, battery->capacity);
-			return true;
+			goto check_recharge_check_count;
 		}
 
 		if ((battery->pdata->recharge_condition_type &
@@ -505,7 +513,7 @@ static bool sec_bat_check_recharge(struct sec_battery_info *battery)
 			dev_info(battery->dev,
 				"%s: Re-charging by average VCELL (%d)\n",
 				__func__, battery->voltage_avg);
-			return true;
+			goto check_recharge_check_count;
 		}
 
 		if ((battery->pdata->recharge_condition_type &
@@ -515,10 +523,25 @@ static bool sec_bat_check_recharge(struct sec_battery_info *battery)
 			dev_info(battery->dev,
 				"%s: Re-charging by VCELL (%d)\n",
 				__func__, battery->voltage_now);
-			return true;
+			goto check_recharge_check_count;
 		}
 	}
 
+	battery->recharge_check_cnt = 0;
+	return false;
+
+check_recharge_check_count:
+	if (battery->recharge_check_cnt <
+		battery->pdata->recharge_check_count)
+		battery->recharge_check_cnt++;
+	dev_dbg(battery->dev,
+		"%s: recharge count = %d\n",
+		__func__, battery->recharge_check_cnt);
+
+	if (battery->recharge_check_cnt >=
+		battery->pdata->recharge_check_count)
+		return true;
+	else
 	return false;
 }
 
@@ -539,6 +562,7 @@ static bool sec_bat_voltage_check(struct sec_battery_info *battery)
 	/* Re-Charging check */
 	if (sec_bat_check_recharge(battery)) {
 		battery->charging_mode = SEC_BATTERY_CHARGING_RECHARGING;
+		battery->is_recharging = true;
 		sec_bat_set_charge(battery, true);
 		return false;
 	}
@@ -780,8 +804,7 @@ static bool sec_bat_temperature_check(
 			if ((battery->health == POWER_SUPPLY_HEALTH_GOOD) &&
 				(battery->status ==
 				 POWER_SUPPLY_STATUS_NOT_CHARGING)) {
-				if (battery->charging_mode ==
-					SEC_BATTERY_CHARGING_RECHARGING)
+				if (battery->is_recharging)
 					battery->status =
 						POWER_SUPPLY_STATUS_FULL;
 				else	/* Normal Charging */
@@ -864,7 +887,18 @@ static void sec_bat_event_set(
 static bool sec_bat_check_fullcharged_condition(
 					struct sec_battery_info *battery)
 {
-	switch (battery->pdata->full_check_type) {
+	int full_check_type;
+
+	if (battery->is_recharging) {
+		full_check_type = battery->pdata->full_check_type_recharge;
+	} else {
+		if (battery->charging_mode == SEC_BATTERY_CHARGING_1ST)
+			full_check_type = battery->pdata->full_check_type;
+		else
+			full_check_type = battery->pdata->full_check_type_2nd;
+	}
+
+	switch (full_check_type) {
 	case SEC_BATTERY_FULLCHARGED_CHGGPIO:
 	case SEC_BATTERY_FULLCHARGED_CHGPSY:
 		/* NO additional full condition
@@ -874,9 +908,13 @@ static bool sec_bat_check_fullcharged_condition(
 	case SEC_BATTERY_FULLCHARGED_CHGINT:
 		return false;
 	case SEC_BATTERY_FULLCHARGED_ADC:
-	case SEC_BATTERY_FULLCHARGED_ADC_DUAL:
 	case SEC_BATTERY_FULLCHARGED_FG_CURRENT:
-	case SEC_BATTERY_FULLCHARGED_FG_CURRENT_DUAL:
+	case SEC_BATTERY_FULLCHARGED_TIME:
+	case SEC_BATTERY_FULLCHARGED_SOC:
+		break;
+	case SEC_BATTERY_FULLCHARGED_NONE:
+	default:
+		return true;
 		break;
 	}
 
@@ -957,12 +995,12 @@ static bool sec_bat_time_management(
 
 	switch (battery->status) {
 	case POWER_SUPPLY_STATUS_FULL:
-		if (battery->charging_mode == SEC_BATTERY_CHARGING_RECHARGING &&
-			(charging_time >
-			battery->pdata->recharging_total_time)) {
+		if (battery->is_recharging && (charging_time >
+		   battery->pdata->recharging_total_time)) {
 			dev_dbg(battery->dev,
 				"%s: Recharging Timer Expired\n", __func__);
 			battery->charging_mode = SEC_BATTERY_CHARGING_NONE;
+			battery->is_recharging = false;
 			if (sec_bat_set_charge(battery, false)) {
 				dev_err(battery->dev,
 					"%s: Fail to Set Charger\n", __func__);
@@ -975,8 +1013,7 @@ static bool sec_bat_time_management(
 	case POWER_SUPPLY_STATUS_CHARGING:
 		if ((battery->pdata->full_condition_type &
 		SEC_BATTERY_FULL_CONDITION_NOTIMEFULL) &&
-		(battery->charging_mode == SEC_BATTERY_CHARGING_RECHARGING &&
-		(charging_time >
+		(battery->is_recharging && (charging_time >
 		battery->pdata->recharging_total_time))) {
 			dev_dbg(battery->dev,
 			"%s: Recharging Timer Expired\n", __func__);
@@ -985,17 +1022,16 @@ static bool sec_bat_time_management(
 				battery->status =
 					POWER_SUPPLY_STATUS_FULL;
 			battery->charging_mode = SEC_BATTERY_CHARGING_NONE;
+			battery->is_recharging = false;
 			if (sec_bat_set_charge(battery, false)) {
 				dev_err(battery->dev,
 					"%s: Fail to Set Charger\n", __func__);
 				return true;
 			}
 			return false;
-		} else if (battery->charging_mode ==
-			SEC_BATTERY_CHARGING_NORMAL &&
-			(charging_time >
-			battery->pdata->charging_total_time)) {
-			dev_dbg(battery->dev,
+		} else if (!battery->is_recharging &&
+			(charging_time > battery->pdata->charging_total_time)) {
+			dev_info(battery->dev,
 				"%s: Charging Timer Expired\n", __func__);
 			if (battery->pdata->full_condition_type &
 				SEC_BATTERY_FULL_CONDITION_NOTIMEFULL) {
@@ -1050,85 +1086,159 @@ static bool sec_bat_check_fullcharged(
 	int current_adc;
 	bool ret;
 	int err;
+	int full_check_type;
 
 	ret = false;
 
 	if (!sec_bat_check_fullcharged_condition(battery))
 		goto not_full_charged;
 
-	switch (battery->pdata->full_check_type) {
-	case SEC_BATTERY_FULLCHARGED_ADC_DUAL:
-		if (battery->charging_mode ==
-			SEC_BATTERY_CHARGING_2ND) {
-			current_adc =
-				sec_bat_get_adc_value(battery,
-				SEC_BAT_ADC_CHANNEL_FULL_CHECK);
+	if (battery->is_recharging)
+		full_check_type = battery->pdata->full_check_type_recharge;
+	else {
+		if (battery->charging_mode == SEC_BATTERY_CHARGING_1ST)
+			full_check_type = battery->pdata->full_check_type;
+		else
+			full_check_type = battery->pdata->full_check_type_2nd;
+	}
 
-			dev_info(battery->dev,
-				"%s: Current ADC (%d)\n",
-				__func__, current_adc);
-
-			if (current_adc < 0)
-				break;
-			battery->current_adc = current_adc;
-
-			if (battery->current_adc <
-				battery->pdata->full_check_adc_2nd) {
-				battery->full_check_cnt++;
-				dev_info(battery->dev,
-					"%s: Full Check 2nd (%d)\n",
-					__func__, battery->full_check_cnt);
-			} else
-				battery->full_check_cnt = 0;
-			break;
-		}
+	switch (full_check_type) {
 	case SEC_BATTERY_FULLCHARGED_ADC:
 		current_adc =
 			sec_bat_get_adc_value(battery,
-			SEC_BAT_ADC_CHANNEL_FULL_CHECK);
+					      SEC_BAT_ADC_CHANNEL_FULL_CHECK);
 
-		dev_info(battery->dev,
-			"%s: Current ADC (%d)\n",
-			__func__, current_adc);
+		dev_dbg(battery->dev,
+			 "%s: Current ADC (%d)\n",
+			 __func__, current_adc);
 
 		if (current_adc < 0)
 			break;
 		battery->current_adc = current_adc;
 
-		if (battery->current_adc <
-			battery->pdata->full_check_adc_1st) {
-			battery->full_check_cnt++;
-			dev_info(battery->dev,
-				"%s: Full Check ADC (%d)\n",
-				__func__, battery->full_check_cnt);
-		} else
-			battery->full_check_cnt = 0;
-		break;
-
-	case SEC_BATTERY_FULLCHARGED_FG_CURRENT_DUAL:
-		if (battery->charging_mode ==
-			SEC_BATTERY_CHARGING_2ND) {
-			if (battery->current_avg <
-				battery->pdata->charging_current[
-				battery->cable_type].full_check_current_2nd) {
+		if (battery->is_recharging) {
+			if (battery->current_adc <
+			    battery->pdata->charging_current_recharging[
+				    battery->cable_type].full_check_current_2nd) {
 				battery->full_check_cnt++;
 				dev_dbg(battery->dev,
-					"%s: Full Check Current 2nd (%d)\n",
-					__func__, battery->full_check_cnt);
+					 "%s: Full Check ADC (%d)\n",
+					 __func__, battery->full_check_cnt);
 			} else
 				battery->full_check_cnt = 0;
-			break;
+		} else {
+			if (battery->current_adc <
+			    (battery->charging_mode ==
+			     SEC_BATTERY_CHARGING_1ST ?
+			     battery->pdata->charging_current[
+				     battery->cable_type].full_check_current_1st :
+			     battery->pdata->charging_current[
+				     battery->cable_type].full_check_current_2nd)) {
+				battery->full_check_cnt++;
+				dev_dbg(battery->dev,
+					 "%s: Full Check ADC (%d)\n",
+					 __func__, battery->full_check_cnt);
+			} else
+				battery->full_check_cnt = 0;
 		}
+		break;
+
 	case SEC_BATTERY_FULLCHARGED_FG_CURRENT:
-		if (battery->current_avg <
-			battery->pdata->charging_current[
-			battery->cable_type].full_check_current_1st) {
-			battery->full_check_cnt++;
-			dev_dbg(battery->dev,
-				"%s: Full Check Current (%d)\n",
-				__func__, battery->full_check_cnt);
-		} else
-			battery->full_check_cnt = 0;
+		if (battery->is_recharging) {
+			if (battery->current_avg <
+			     battery->pdata->charging_current_recharging[
+				     battery->cable_type].full_check_current_2nd) {
+				battery->full_check_cnt++;
+				dev_dbg(battery->dev,
+					"%s: Full Check Current (%d)\n",
+					__func__,
+					battery->full_check_cnt);
+			} else
+				battery->full_check_cnt = 0;
+		} else {
+			if (battery->current_avg <
+			    (battery->charging_mode ==
+			     SEC_BATTERY_CHARGING_1ST ?
+			     battery->pdata->charging_current[
+				     battery->cable_type].full_check_current_1st :
+			     battery->pdata->charging_current[
+				     battery->cable_type].full_check_current_2nd)) {
+				battery->full_check_cnt++;
+				dev_dbg(battery->dev,
+					"%s: Full Check Current (%d)\n",
+					__func__,
+					battery->full_check_cnt);
+			} else
+				battery->full_check_cnt = 0;
+		}
+		break;
+
+	case SEC_BATTERY_FULLCHARGED_TIME:
+		if (battery->is_recharging) {
+			if ((battery->charging_passed_time) >
+			    battery->pdata->charging_current_recharging[
+				     battery->cable_type].full_check_current_2nd) {
+				battery->full_check_cnt++;
+				dev_dbg(battery->dev,
+					"%s: Full Check Time (%d)\n",
+					__func__,
+					battery->full_check_cnt);
+			} else
+				battery->full_check_cnt = 0;
+		} else {
+			if ((battery->charging_mode ==
+			     SEC_BATTERY_CHARGING_2ND ?
+			     (battery->charging_passed_time -
+			      battery->charging_fullcharged_time) :
+			     battery->charging_passed_time) >
+			    (battery->charging_mode ==
+			     SEC_BATTERY_CHARGING_1ST ?
+			     battery->pdata->charging_current[
+				     battery->cable_type].full_check_current_1st :
+			     battery->pdata->charging_current[
+				     battery->cable_type].full_check_current_2nd)) {
+				battery->full_check_cnt++;
+				dev_info(battery->dev,
+					"%s: Full Check Time (%d)\n",
+					__func__,
+					battery->full_check_cnt);
+			} else
+				battery->full_check_cnt = 0;
+		}
+		break;
+
+	case SEC_BATTERY_FULLCHARGED_SOC:
+		if (battery->is_recharging) {
+			if (battery->capacity <=
+			    (battery->charging_mode ==
+			     SEC_BATTERY_CHARGING_1ST ?
+			     battery->pdata->charging_current[
+				     battery->cable_type].full_check_current_1st :
+			     battery->pdata->charging_current[
+				     battery->cable_type].full_check_current_2nd)) {
+				battery->full_check_cnt++;
+				dev_dbg(battery->dev,
+					"%s: Full Check SOC (%d)\n",
+					__func__,
+					battery->full_check_cnt);
+			} else
+				battery->full_check_cnt = 0;
+		} else {
+			if (battery->capacity <=
+			    (battery->charging_mode ==
+			     SEC_BATTERY_CHARGING_1ST ?
+			     battery->pdata->charging_current[
+				     battery->cable_type].full_check_current_1st :
+			     battery->pdata->charging_current[
+				     battery->cable_type].full_check_current_2nd)) {
+				battery->full_check_cnt++;
+				dev_dbg(battery->dev,
+					"%s: Full Check SOC (%d)\n",
+					__func__,
+					battery->full_check_cnt);
+			} else
+				battery->full_check_cnt = 0;
+		}
 		break;
 
 	case SEC_BATTERY_FULLCHARGED_CHGGPIO:
@@ -1165,6 +1275,13 @@ static bool sec_bat_check_fullcharged(
 			battery->full_check_cnt = 0;
 		break;
 
+	/* If these is NOT full check type or NONE full check type,
+	 * it is full-charged
+	 */
+	case SEC_BATTERY_FULLCHARGED_NONE:
+		battery->full_check_cnt = 0;
+		ret = true;
+		break;
 	default:
 		dev_err(battery->dev,
 			"%s: Invalid Full Check\n", __func__);
@@ -1186,15 +1303,18 @@ static void sec_bat_do_fullcharged(
 {
 	union power_supply_propval value;
 
-	if (((battery->pdata->full_check_type ==
-		SEC_BATTERY_FULLCHARGED_ADC_DUAL) ||
-		(battery->pdata->full_check_type ==
-		SEC_BATTERY_FULLCHARGED_FG_CURRENT_DUAL)) &&
-		(battery->charging_mode ==
-		SEC_BATTERY_CHARGING_NORMAL)) {
+	battery->status = POWER_SUPPLY_STATUS_FULL;
+
+	if (battery->charging_mode == SEC_BATTERY_CHARGING_1ST) {
 		battery->charging_mode = SEC_BATTERY_CHARGING_2ND;
+		battery->charging_fullcharged_time =
+			battery->charging_passed_time;
+		/*
+		 *sec_bat_set_charge(battery, true);
+		 */
 	} else {
 		battery->charging_mode = SEC_BATTERY_CHARGING_NONE;
+		battery->is_recharging = false;
 		sec_bat_set_charge(battery, false);
 
 		value.intval = POWER_SUPPLY_STATUS_FULL;
@@ -1210,7 +1330,6 @@ static void sec_bat_do_fullcharged(
 	if (battery->pdata->polling_type == SEC_BATTERY_MONITOR_ALARM)
 		wake_lock_timeout(&battery->vbus_wake_lock, HZ * 10);
 
-	battery->status = POWER_SUPPLY_STATUS_FULL;
 }
 
 static bool sec_bat_fullcharged_check(
@@ -1227,8 +1346,10 @@ static bool sec_bat_fullcharged_check(
 		sec_bat_do_fullcharged(battery);
 
 	dev_info(battery->dev,
-		"%s: Charging Mode : %s\n", __func__,
-		sec_bat_charging_mode_str[battery->charging_mode]);
+		 "%s: Charging Mode : %s\n", __func__,
+		 battery->is_recharging ?
+		 sec_bat_charging_mode_str[SEC_BATTERY_CHARGING_RECHARGING] :
+		 sec_bat_charging_mode_str[battery->charging_mode]);
 
 	return true;
 };
@@ -1259,6 +1380,8 @@ static void sec_bat_get_battery_info(
 	psy_do_property("sec-fuelgauge", get,
 		POWER_SUPPLY_PROP_CURRENT_AVG, value);
 	battery->current_avg = value.intval;
+
+	value.intval = 0;
 
 	psy_do_property("sec-fuelgauge", get,
 		POWER_SUPPLY_PROP_CAPACITY, value);
@@ -1392,7 +1515,9 @@ static unsigned int sec_bat_get_polling_time(
 		battery->polling_short = false;
 		break;
 	case POWER_SUPPLY_STATUS_FULL:
-		if (battery->polling_in_sleep) {
+		if ((battery->pdata->full_condition_type &
+		     SEC_BATTERY_FULL_CONDITION_SLEEPINFULL) &&
+		    battery->polling_in_sleep) {
 			if (battery->charging_mode ==
 				SEC_BATTERY_CHARGING_NONE)
 				battery->polling_time =
@@ -1515,15 +1640,15 @@ static void sec_bat_monitor_work(
 
 	dev_dbg(battery->dev, "%s: Start\n", __func__);
 
+	/* monitor once after wakeup */
+	if (battery->polling_in_sleep)
+		battery->polling_in_sleep = false;
+
 	/* 0. test mode */
 	if (battery->test_activated) {
 		dev_dbg(battery->dev, "%s: Test Mode\n", __func__);
 		goto continue_monitor;
 	}
-
-	/* monitor once after wakeup */
-	if (battery->polling_in_sleep)
-		battery->polling_in_sleep = false;
 
 	sec_bat_get_battery_info(battery);
 
@@ -1584,13 +1709,17 @@ static void sec_bat_cable_work(struct work_struct *work)
 	 */
 	wake_lock_timeout(&battery->vbus_wake_lock, HZ * 5);
 
-	if (battery->cable_type == POWER_SUPPLY_TYPE_BATTERY) {
+	if (battery->cable_type == POWER_SUPPLY_TYPE_BATTERY ||
+	    ((battery->pdata->cable_check_type &
+	      SEC_BATTERY_CABLE_CHECK_NOINCOMPATIBLECHARGE) &&
+	     battery->cable_type == POWER_SUPPLY_TYPE_UNKNOWN)) {
 		if (battery->status == POWER_SUPPLY_STATUS_FULL) {
 			val.intval = POWER_SUPPLY_TYPE_BATTERY;
 			psy_do_property("sec-fuelgauge", set,
 					POWER_SUPPLY_PROP_CHARGE_FULL, val);
 		}
 		battery->charging_mode = SEC_BATTERY_CHARGING_NONE;
+		battery->is_recharging = false;
 		battery->status = POWER_SUPPLY_STATUS_DISCHARGING;
 		battery->health = POWER_SUPPLY_HEALTH_GOOD;
 
@@ -1602,7 +1731,13 @@ static void sec_bat_cable_work(struct work_struct *work)
 			battery->charging_mode = SEC_BATTERY_CHARGING_NONE;
 			battery->status = POWER_SUPPLY_STATUS_DISCHARGING;
 		} else {
-			battery->charging_mode = SEC_BATTERY_CHARGING_NORMAL;
+			if (battery->pdata->full_check_type !=
+			    SEC_BATTERY_FULLCHARGED_NONE)
+				battery->charging_mode =
+					SEC_BATTERY_CHARGING_1ST;
+			else
+				battery->charging_mode =
+					SEC_BATTERY_CHARGING_2ND;
 			battery->status = POWER_SUPPLY_STATUS_CHARGING;
 		}
 
@@ -1680,9 +1815,6 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 		break;
 	case BATT_VOL_ADC_AVER:
 		break;
-	case BATT_TEMP:
-		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
-			battery->temperature);
 	case BATT_TEMP_ADC:
 		i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
 			battery->temp_adc);
@@ -1906,8 +2038,11 @@ ssize_t sec_bat_store_attrs(
 		}
 		break;
 	case UPDATE:
-		/* update battery info */
-		sec_bat_get_battery_info(battery);
+		if (sscanf(buf, "%d\n", &x) == 1) {
+			/* update battery info */
+			sec_bat_get_battery_info(battery);
+			ret = count;
+		}
 		break;
 	case TEST_MODE:
 		if (sscanf(buf, "%d\n", &x) == 1) {
@@ -2019,15 +2154,20 @@ static int sec_bat_set_property(struct power_supply *psy,
 {
 	struct sec_battery_info *battery =
 		container_of(psy, struct sec_battery_info, psy_bat);
+	int current_cable_type;
+	int full_check_type;
 
 	dev_dbg(battery->dev,
 		"%s: (%d,%d)\n", __func__, psp, val->intval);
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
-		if ((battery->pdata->full_check_type ==
-			SEC_BATTERY_FULLCHARGED_CHGINT) &&
-			(val->intval == POWER_SUPPLY_STATUS_FULL))
+		if (battery->charging_mode == SEC_BATTERY_CHARGING_1ST)
+			full_check_type = battery->pdata->full_check_type;
+		else
+			full_check_type = battery->pdata->full_check_type_2nd;
+		if ((full_check_type == SEC_BATTERY_FULLCHARGED_CHGINT) &&
+		    (val->intval == POWER_SUPPLY_STATUS_FULL))
 			sec_bat_do_fullcharged(battery);
 		battery->status = val->intval;
 		break;
@@ -2277,6 +2417,7 @@ static int __devinit sec_battery_probe(struct platform_device *pdev)
 	battery->charging_start_time = 0;
 	battery->charging_passed_time = 0;
 	battery->charging_next_time = 0;
+	battery->charging_fullcharged_time = 0;
 
 	alarm_init(&battery->event_termination_alarm,
 			ANDROID_ALARM_ELAPSED_REALTIME_WAKEUP,
@@ -2292,6 +2433,7 @@ static int __devinit sec_battery_probe(struct platform_device *pdev)
 		pdata->temp_low_threshold_normal;
 
 	battery->charging_mode = SEC_BATTERY_CHARGING_NONE;
+	battery->is_recharging = false;
 	battery->cable_type = POWER_SUPPLY_TYPE_BATTERY;
 	battery->test_activated = false;
 	battery->factory_mode = false;

@@ -21,6 +21,10 @@ enum usb_state {
 	CARKIT_TYPE2_UNPLUGGED,
 	DESKTOP_DOCK_PLUGGED,
 	DESKTOP_DOCK_UNPLUGGED,
+	PLEOMAX_CHARGER_PLUGGED,
+	PLEOMAX_CHARGER_UNPLUGGED,
+	ATNT_CHARGER_PLUGGED,
+	ATNT_CHARGER_UNPLUGGED,
 };
 
 enum usbswitch_link {
@@ -47,6 +51,10 @@ enum usbswitch_link {
 	USBSWITCH_PPD,
 	/* desktop dock 365kOhm ID resistance */
 	USBSWITCH_DESKTOP_DOCK,
+	/* Vbus, No Id resistance and resistance D+ D- is 3.3kOhm */
+	USBSWITCH_PLEOMAX_CHARGER,
+	/* AT&T cable with ID 200k and DP/DM shorted */
+	USBSWITCH_ATNT_CHARGER,
 	USBSWITCH_UNKNOWN,
 	USB_CABLE,
 	USBSWITCH_USBHOST,

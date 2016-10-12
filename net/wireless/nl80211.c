@@ -3871,22 +3871,42 @@ static bool nl80211_valid_auth_type(enum nl80211_auth_type auth_type)
 static bool nl80211_valid_wpa_versions(u32 wpa_versions)
 {
 	return !(wpa_versions & ~(NL80211_WPA_VERSION_1 |
+#ifdef CONFIG_TARGET_LOCALE_CHN
+				NL80211_WPA_VERSION_2 | 
+				NL80211_WAPI_VERSION_1 ));
+#else
 				  NL80211_WPA_VERSION_2));
+#endif
 }
 
 static bool nl80211_valid_akm_suite(u32 akm)
 {
 	return akm == WLAN_AKM_SUITE_8021X ||
+#ifdef CONFIG_TARGET_LOCALE_CHN
+		akm == WLAN_AKM_SUITE_PSK ||
+		akm == WLAN_AKM_SUITE_WAPI_PSK ||
+		akm == WLAN_AKM_SUITE_WAPI_CERT;
+#else
 		akm == WLAN_AKM_SUITE_PSK;
+#endif
 }
 
 static bool nl80211_valid_cipher_suite(u32 cipher)
 {
+#ifdef CONFIG_TARGET_LOCALE_CHN
+	if(cipher == WLAN_CIPHER_SUITE_SMS4)
+		printk(KERN_DEBUG " ** nl80211_valid_cipher_suite, is WLAN_CIPHER_SUITE_SMS4\n");
+#endif
 	return cipher == WLAN_CIPHER_SUITE_WEP40 ||
 		cipher == WLAN_CIPHER_SUITE_WEP104 ||
 		cipher == WLAN_CIPHER_SUITE_TKIP ||
 		cipher == WLAN_CIPHER_SUITE_CCMP ||
+#ifdef CONFIG_TARGET_LOCALE_CHN
+		cipher == WLAN_CIPHER_SUITE_AES_CMAC ||
+		cipher == WLAN_CIPHER_SUITE_SMS4;
+#else
 		cipher == WLAN_CIPHER_SUITE_AES_CMAC;
+#endif
 }
 
 
@@ -4458,12 +4478,14 @@ EXPORT_SYMBOL(cfg80211_testmode_alloc_event_skb);
 
 void cfg80211_testmode_event(struct sk_buff *skb, gfp_t gfp)
 {
+	struct cfg80211_registered_device *rdev = ((void **)skb->cb)[0];
 	void *hdr = ((void **)skb->cb)[1];
 	struct nlattr *data = ((void **)skb->cb)[2];
 
 	nla_nest_end(skb, data);
 	genlmsg_end(skb, hdr);
-	genlmsg_multicast(skb, 0, nl80211_testmode_mcgrp.id, gfp);
+	genlmsg_multicast_netns(wiphy_net(&rdev->wiphy), skb, 0,
+				nl80211_testmode_mcgrp.id, gfp);
 }
 EXPORT_SYMBOL(cfg80211_testmode_event);
 #endif
@@ -6749,7 +6771,8 @@ void nl80211_send_mgmt_tx_status(struct cfg80211_registered_device *rdev,
 		return;
 	}
 
-	genlmsg_multicast(msg, 0, nl80211_mlme_mcgrp.id, gfp);
+	genlmsg_multicast_netns(wiphy_net(&rdev->wiphy), msg, 0,
+				nl80211_mlme_mcgrp.id, gfp);
 	return;
 
  nla_put_failure:

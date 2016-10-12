@@ -354,6 +354,8 @@ static void dump_allregs(struct fiq_debugger_state *state, unsigned *regs)
 			mode_regs.sp_fiq, mode_regs.lr_fiq, mode_regs.spsr_fiq);
 }
 
+extern struct irq_desc *irq_desc;
+
 static void dump_irqs(struct fiq_debugger_state *state)
 {
 	int n;

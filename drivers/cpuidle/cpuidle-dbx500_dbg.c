@@ -96,7 +96,7 @@ static struct clk *uart_clk;
 /* Blocks ApSleep and ApDeepSleep */
 static bool force_APE_on;
 static bool reset_timer;
-static int deepest_allowed_state = CONFIG_DBX500_CPUIDLE_DEEPEST_STATE;
+int deepest_allowed_state = CONFIG_DBX500_CPUIDLE_DEEPEST_STATE;
 static u32 measure_latency;
 static bool wake_latency;
 static int verbose;
@@ -104,6 +104,8 @@ static int verbose;
 static struct cstate *cstates;
 static int cstates_len;
 static DEFINE_SPINLOCK(console_lock);
+
+extern int jig_smd;
 
 /* This is stored for post-mortem analysis */
 #ifdef CONFIG_CRASH_DUMP
@@ -199,12 +201,13 @@ void ux500_ci_dbg_console_check_uart(void)
 
 void ux500_ci_dbg_console(void)
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	if (!dbg_console_enable)
 		return;
 
 	spin_lock_irqsave(&console_lock, flags);
+
 	if (reset_timer) {
 		reset_timer = false;
 		spin_unlock_irqrestore(&console_lock, flags);
@@ -218,6 +221,7 @@ void ux500_ci_dbg_console(void)
 		spin_unlock_irqrestore(&console_lock, flags);
 	}
 }
+
 EXPORT_SYMBOL(ux500_ci_dbg_console);
 
 static void dbg_cpuidle_work_function(struct work_struct *work)
@@ -485,9 +489,16 @@ void ux500_ci_dbg_log_post_mortem(int ctarget,
 
 }
 #else
+void ux500_ci_dbg_cobsole(void)
+{
+}
+
+EXPORT_SYMBOL(ux500_ci_dbg_console);
+
 void ux500_ci_dbg_wake_time(ktime_t time_wake)
 {
 }
+
 void ux500_ci_dbg_log_post_mortem(ktime_t enter_time, ktime_t est_wake_common,
 				  ktime_t est_wake, int sleep, bool is_last)
 {
@@ -1282,6 +1293,10 @@ void __init ux500_ci_dbg_init(void)
 	struct state_history *sh;
 
 	cstates = ux500_ci_get_cstates(&cstates_len);
+
+	if(jig_smd)
+		deepest_allowed_state = CONFIG_DBX500_CPUIDLE_DEEPEST_STATE - 1;
+
 
 	if (deepest_allowed_state > cstates_len)
 		deepest_allowed_state = cstates_len;

@@ -10,7 +10,16 @@ PRIVATE_KERNEL_ARGS := -C kernel ARCH=arm CROSS_COMPILE=$(CROSS_COMPILE) LOCALVE
 
 PRIVATE_OUT := $(abspath $(PRODUCT_OUT)/root)
 
-PRODUCT_ICS_UPG := janicexx codinaxx gavinixx
+PRODUCT_JB_UPG := GT-I9070P GT-I9070 GT-I8160 GT-I8160L GT-I8530 GT-I8160P
+
+ifeq ($(CONNECTIVITY_ENABLE_FEATURE_STE_WLAN),true)
+export FEATURE_STE_WLAN=y
+# For compat-wireless gits to compile with kernel
+export STERICSSON_WLAN_BUILT_IN=y
+endif
+ifeq ($(CONNECTIVITY_ENABLE_FEATURE_STE_BT),true)
+export FEATURE_STE_BT=y
+endif
 
 # only do this if we are buidling out of tree
 ifneq ($(KERNEL_OUTPUT),)
@@ -21,6 +30,9 @@ else
 KERNEL_OUTPUT := $(call my-dir)
 endif
 
+# STE Connectivity configuration
+PRIVATE_KERNEL_ARGS += \
+	CONNECTIVITY_ENABLE_FEATURE_STE_CONNECTIVITY=$(CONNECTIVITY_ENABLE_FEATURE_STE_CONNECTIVITY)
 build-kernel: $(PRODUCT_OUT)/zImage
 
 # Include kernel in the Android build system
@@ -91,13 +103,34 @@ ifeq ($(SHRM_ENABLE_FEATURE_SIGNATURE_VERIFICATION),false)
 		--disable CONFIG_U8500_SHRM_ENABLE_FEATURE_SIGNATURE_VERIFICATION
 endif
 
-ifneq ($(findstring $(TARGET_PRODUCT), $(PRODUCT_ICS_UPG)),)
+ifneq ($(CONNECTIVITY_ENABLE_FEATURE_STE_WLAN),true)
+	kernel/scripts/config --file $(KERNEL_OUTPUT)/.config \
+		--disable CONFIG_COMPAT_WIRELESS
+	kernel/scripts/config --file $(KERNEL_OUTPUT)/.config \
+		--disable CONFIG_COMPAT_WIRELESS_MODULES
+#	kernel/scripts/config --file $(KERNEL_OUTPUT)/.config \
+		--disable CONFIG_CFG80211
+	kernel/scripts/config --file $(KERNEL_OUTPUT)/.config \
+		--disable CONFIG_MAC80211
+	kernel/scripts/config --file $(KERNEL_OUTPUT)/.config \
+		--disable CONFIG_LIB80211
+	kernel/scripts/config --file $(KERNEL_OUTPUT)/.config \
+		--disable CONFIG_COMPAT_MAC80211_RC_DEFAULT
+endif
+ifneq ($(findstring $(TARGET_PRODUCT), $(PRODUCT_JB_UPG)),)
 	kernel/scripts/config --file $(KERNEL_OUTPUT)/.config \
 		--set-str CONFIG_INITRAMFS_SOURCE "$(abspath $(TOP)/$(TARGET_ROOT_OUT))" \
 		--set-val CONFIG_INITRAMFS_ROOT_UID 0 \
 		--set-val CONFIG_INITRAMFS_ROOT_GID 0 \
 		--enable CONFIG_INITRAMFS_COMPRESSION_NONE \
 		--disable CONFIG_INITRAMFS_COMPRESSION_GZIP
+endif
+
+# Enable openMAC from here, since the defconfig is now set for UMAC
+ifeq ($(WLAN_ENABLE_OPEN_MAC_SOLUTION),true)
+ifneq ($(shell [ -f kernel/net/compat-wireless-openmac/Makefile ] && echo "OK"), OK)
+	$(shell ln -s ../../vendor/st-ericsson/variant/connectivity/wlan/compat-wireless-openmac/ kernel/net/)
+endif
 endif
 	$(MAKE) $(PRIVATE_KERNEL_ARGS) zImage
 ifeq ($(KERNEL_NO_MODULES),)
@@ -108,24 +141,21 @@ else
 endif
 	cp -u $(KERNEL_OUTPUT)/vmlinux $(PRODUCT_OUT)
 
-build-kernel2: build-kernel init-symlinks
-	$(MAKE) bootimage
-	$(MAKE) recoveryimage
-
-build-kernel3: build-kernel ramdisk init-symlinks recoveryimage
-	kernel/scripts/config --file $(KERNEL_OUTPUT)/.config \
-		--set-str CONFIG_INITRAMFS_SOURCE "$(abspath $(TOP)/$(TARGET_ROOT_OUT))" \
-		--set-val CONFIG_INITRAMFS_ROOT_UID 0 \
-		--set-val CONFIG_INITRAMFS_ROOT_GID 0 \
-		--enable CONFIG_INITRAMFS_COMPRESSION_NONE \
-		--disable CONFIG_INITRAMFS_COMPRESSION_GZIP
-	$(MAKE) $(PRIVATE_KERNEL_ARGS) zImage
+ifneq ($(findstring $(TARGET_PRODUCT), $(PRODUCT_JB_UPG)),)
 	cd $(KERNEL_OUTPUT)/arch/arm/boot; \
 	cp -f zImage kernel.bin; \
 	cp -f zImage $(abspath $(PRODUCT_OUT)); \
 	cp -f zImage $(abspath $(PRODUCT_OUT))/kernel.bin; \
 	cp -f zImage $(abspath $(PRODUCT_OUT))/kernel2.bin; \
 	tar cvf $(abspath $(PRODUCT_OUT))/kernel.tar kernel.bin
+endif
+
+build-kernel2: build-kernel init-symlinks
+	$(MAKE) bootimage
+	$(MAKE) recoveryimage
+
+build-kernel3: ramdisk init-symlinks recoveryimage build-kernel
+	@echo "== build-kernel3 =="
 
 # Configures and runs menuconfig on the kernel based on
 # KERNEL_DEFCONFIG given on commandline or in BoardConfig.mk.

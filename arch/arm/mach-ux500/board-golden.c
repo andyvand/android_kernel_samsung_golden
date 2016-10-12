@@ -940,26 +940,26 @@ static u8 t56_config_ta[] = {
 	0x03,			/* CTRL */
 	0x00,
 	0x01,			/* OPTINT */
-	0x16,			/* INTTIME */
-	0x0A,			/* INTDELAY */
-	0x0A,			/* ... */
-	0x0A,			/* ... */
+	0x1b,			/* INTTIME */
+	0x09,			/* INTDELAY */
 	0x09,			/* ... */
-	0x0A,			/* ... */
-	0x0A,			/* ... */
-	0x0A,			/* ... */
-	0x0B,			/* ... */
-	0x0B,			/* ... */
-	0x0B,			/* ... */
-	0x0C,			/* ... */
-	0x0B,			/* ... */
-	0x0C,			/* ... */
-	0x0D,			/* ... */
-	0x0D,			/* ... */
-	0x0E,			/* ... */
-	0x0E,			/* ... */
-	0x0F,			/* ... */
-	0x0F,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
+	0x09,			/* ... */
 	0x00,			/* ... */
 	0x00,			/* ... */
 	0x00,			/* ... */
@@ -1151,7 +1151,7 @@ static struct mxt_platform_data mxt_pdata = {
 	.gpio_read_done = TSP_INT_GOLDEN_BRINGUP,
 	.config = config_data,
 	.ta_config = ta_config_data,
-	.config_ver = "I8190_At_1024",
+	.config_ver = "I8190_At_1019",
 	.min_x = 0,
 	.max_x = 480,
 	.min_y = 0,
@@ -2534,7 +2534,7 @@ struct sec_jack_platform_data sec_jack_pdata = {
 	.buttons_r = "ACC_DETECT_21DB_R",
 	.buttons_f = "ACC_DETECT_21DB_F",
 	.regulator_mic_source = "v-amic1",
-#ifdef CONFIG_MACH_SEC_GOLDEN
+#ifdef CONFIG_SAMSUNG_JACK_SW_WATERPROOF
 	.ear_reselector_zone    = 1650,
 #endif
 };

@@ -660,7 +660,6 @@ struct sipc* sipc_open(void (*queue)(u32, void*), struct net_device *ndev)
 static void clear_pdp_wq(struct work_struct *work)
 {
 	int i;
-
 	mutex_lock(&pdp_mutex);
 
 	for (i=0;i<sizeof(pdp_devs)/sizeof(pdp_devs[0]);i++) {
@@ -2639,3 +2638,4 @@ static void _go_dump(struct sipc *si)
 	// Never Return!!!
 }
 #endif
+

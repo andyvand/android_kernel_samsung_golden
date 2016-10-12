@@ -584,6 +584,47 @@ static int ab8500_chg_en(struct ab8500_charger_info *di, int enable)
 			return ret;
 		}
 
+#ifdef CONFIG_AB8505_SMPL
+		/* SMPL issue workaround by disabling NMOS always */
+#ifdef CONFIG_CHARGER_AB8500_USE_MAINCHGBLK
+		ret = abx500_set_register_interruptible(di->dev,
+			AB8500_CHARGER,
+			AB8500_MCH_CTRL1, 0);
+#else
+		ret = abx500_set_register_interruptible(di->dev,
+			AB8500_CHARGER,
+			AB8500_USBCH_CTRL1_REG, 0);
+#endif
+		if (ret) {
+			dev_err(di->dev, "%s write failed\n", __func__);
+			return ret;
+		}
+
+		ret = abx500_set_register_interruptible(di->dev,
+			0x11,
+			0x0, 0x1);
+		if (ret) {
+			dev_err(di->dev, "%s write failed\n", __func__);
+			return ret;
+		}
+
+		ret = abx500_set_register_interruptible(di->dev,
+			0x14,
+			0x12, 0xCE);
+		if (ret) {
+			dev_err(di->dev, "%s write failed\n", __func__);
+			return ret;
+		}
+
+		ret = abx500_set_register_interruptible(di->dev,
+			0x11,
+			0x0, 0x0);
+		if (ret) {
+			dev_err(di->dev, "%s write failed\n", __func__);
+			return ret;
+		}
+#endif
+
 #ifdef CONFIG_CHARGER_AB8500_USE_MAINCHGBLK
 		/* Check if VBAT overshoot control should be enabled */
 		if (!get_battery_data(di).enable_overshoot)
@@ -672,6 +713,24 @@ static int ab8500_chg_en(struct ab8500_charger_info *di, int enable)
 	return ret;
 }
 
+static void ab8500_chg_check_input_curr(struct ab8500_charger_info *di)
+{
+	int ret;
+	u8 value;
+	ret = abx500_get_register_interruptible(di->dev,
+					        AB8500_CHARGER,
+						AB8500_CH_USBCH_STAT2_REG,
+						&value);
+	if (ret < 0) {
+		dev_err(di->dev, "%s ab8500 read failed\n", __func__);
+		return;
+	}
+	if (value < 0x30) {
+		ab8500_chg_en(di, false);
+		dev_info(di->dev, "%s, set input current again\n", __func__);
+		ab8500_chg_en(di, true);
+	}
+}
 static struct ab8500_charger_event_list ab8500_event_list[] = {
 	{"MAIN_EXT_CH_NOT_OK", F_MAIN_EXT_CH_NOT_OK, M_MAIN_EXT_CH_NOT_OK},
 	{"USB_CHARGER_NOT_OK", F_USB_CHARGER_NOT_OK, M_USB_CHARGER_NOT_OK},
@@ -740,6 +799,32 @@ static int ab8500_chg_reenable(struct ab8500_charger_info *di)
 			return ret;
 		}
 
+#ifdef CONFIG_AB8505_SMPL
+		/* SMPL issue workaround by disabling NMOS always */
+		ret = abx500_set_register_interruptible(di->dev,
+			0x11,
+			0x0, 0x1);
+		if (ret) {
+			dev_err(di->dev, "%s write failed\n", __func__);
+			return ret;
+		}
+
+		ret = abx500_set_register_interruptible(di->dev,
+			0x14,
+			0x12, 0xCE);
+		if (ret) {
+			dev_err(di->dev, "%s write failed\n", __func__);
+			return ret;
+		}
+
+		ret = abx500_set_register_interruptible(di->dev,
+			0x11,
+			0x0, 0x0);
+		if (ret) {
+			dev_err(di->dev, "%s write failed\n", __func__);
+			return ret;
+		}
+#endif
 		if (!get_battery_data(di).enable_overshoot)
 			overshoot = MAIN_CH_NO_OVERSHOOT_ENA_N;
 
@@ -808,6 +893,32 @@ static int ab8500_chg_reenable(struct ab8500_charger_info *di)
 			return ret;
 		}
 
+#ifdef CONFIG_AB8505_SMPL
+		/* SMPL issue workaround by disabling NMOS always */
+		ret = abx500_set_register_interruptible(di->dev,
+			0x11,
+			0x0, 0x1);
+		if (ret) {
+			dev_err(di->dev, "%s write failed\n", __func__);
+			return ret;
+		}
+
+		ret = abx500_set_register_interruptible(di->dev,
+			0x14,
+			0x12, 0xCE);
+		if (ret) {
+			dev_err(di->dev, "%s write failed\n", __func__);
+			return ret;
+		}
+
+		ret = abx500_set_register_interruptible(di->dev,
+			0x11,
+			0x0, 0x0);
+		if (ret) {
+			dev_err(di->dev, "%s write failed\n", __func__);
+			return ret;
+		}
+#endif
 		if (!get_battery_data(di).enable_overshoot)
 			overshoot = USB_CHG_NO_OVERSHOOT_ENA_N;
 
@@ -889,8 +1000,9 @@ static void ab8500_chg_attached_work(struct work_struct *work)
 
 	int i;
 	int ret;
+	int state;
+
 	u8 statval;
-	union power_supply_propval value;
 
 	struct ab8500_charger_info *di = container_of(work,
 					 struct ab8500_charger_info,
@@ -916,10 +1028,9 @@ static void ab8500_chg_attached_work(struct work_struct *work)
 	ab8500_chg_en(di, false);
 	dev_info(di->dev, "%s, cable detach error occur\n", __func__);
 
-	/* we should verify this routine */
-	value.intval = POWER_SUPPLY_TYPE_BATTERY;
-	psy_do_property("battery", set,
-			POWER_SUPPLY_PROP_ONLINE, value);
+	state = POWER_SUPPLY_TYPE_BATTERY;
+	if (get_battery_data(di).abb_set_cable_state)
+		get_battery_data(di).abb_set_cable_state(state);
 
 	mutex_lock(&di->chg_attached_mutex);
 	if (wake_lock_active(&di->chg_attached_wake_lock))
@@ -940,7 +1051,7 @@ static void ab8500_chg_attached_work(struct work_struct *work)
 	int i;
 	int ret;
 	u8 statval;
-	union power_supply_propval value;
+	int state;
 
 	struct ab8500_charger_info *di = container_of(work,
 					 struct ab8500_charger_info,
@@ -966,10 +1077,9 @@ static void ab8500_chg_attached_work(struct work_struct *work)
 
 	dev_info(di->dev, "%s, cable detach error occur\n", __func__);
 
-	/* we should verify this routine */
-	value.intval = POWER_SUPPLY_TYPE_BATTERY;
-	psy_do_property("battery", set,
-			POWER_SUPPLY_PROP_ONLINE, value);
+	state = POWER_SUPPLY_TYPE_BATTERY;
+	if (get_battery_data(di).abb_set_cable_state)
+		get_battery_data(di).abb_set_cable_state(state);
 
 	mutex_lock(&di->chg_attached_mutex);
 	if (wake_lock_active(&di->chg_attached_wake_lock))
@@ -1030,23 +1140,27 @@ static void ab8500_chg_set_charge(struct ab8500_charger_info *di,
 		queue_delayed_work(di->charger_wq,
 				   &di->kick_wd_work,
 				   round_jiffies(WD_KICK_INTERVAL));
-		mutex_lock(&di->chg_attached_mutex);
-		if (!wake_lock_active(&di->chg_attached_wake_lock))
-			wake_lock(&di->chg_attached_wake_lock);
-		mutex_unlock(&di->chg_attached_mutex);
-		queue_delayed_work(di->charger_wq,
-				   &di->chg_attached_work,
-				   HZ);
+		if (is_ab8500(di->parent)) {
+			mutex_lock(&di->chg_attached_mutex);
+			if (!wake_lock_active(&di->chg_attached_wake_lock))
+				wake_lock(&di->chg_attached_wake_lock);
+			mutex_unlock(&di->chg_attached_mutex);
+			queue_delayed_work(di->charger_wq,
+					   &di->chg_attached_work,
+					   HZ);
+		}
 	} else {
 		ab8500_chg_en(di, false);
 		di->is_charging = false;
 		cancel_delayed_work(&di->kick_wd_work);
-		cancel_delayed_work_sync(
-			&di->chg_attached_work);
-		mutex_lock(&di->chg_attached_mutex);
-		if (wake_lock_active(&di->chg_attached_wake_lock))
-			wake_unlock(&di->chg_attached_wake_lock);
-		mutex_unlock(&di->chg_attached_mutex);
+		if (is_ab8500(di->parent)) {
+			cancel_delayed_work_sync(
+				&di->chg_attached_work);
+			mutex_lock(&di->chg_attached_mutex);
+			if (wake_lock_active(&di->chg_attached_wake_lock))
+				wake_unlock(&di->chg_attached_wake_lock);
+			mutex_unlock(&di->chg_attached_mutex);
+		}
 	}
 }
 
@@ -1076,6 +1190,23 @@ static bool ab8500_chg_check_ovp_status(struct ab8500_charger_info *di)
 	}
 }
 
+static void ab8500_chg_reset_chg_counter_work(struct work_struct *work)
+{
+	struct ab8500_charger_info *di = container_of(work,
+		      struct ab8500_charger_info, reset_chg_counter_work.work);
+
+	int ret;
+
+	ab8500_chg_en(di, false);
+
+	/* Reset Drop Counter */
+	ret = abx500_set_register_interruptible(di->dev,
+			AB8500_CHARGER,
+			0x56, 0x0);
+
+	ab8500_chg_en(di, true);
+
+}
 
 
 static void ab8500_chg_check_hw_failure_delay_work(struct work_struct *work)
@@ -1083,20 +1214,12 @@ static void ab8500_chg_check_hw_failure_delay_work(struct work_struct *work)
 	struct ab8500_charger_info *di = container_of(work,
 		      struct ab8500_charger_info, check_hw_failure_work.work);
 
-	/* TODO : should be removed after PVR */
-	/* panic("ab850x charger bug"); */
+	int state;
+
 	dev_info(di->dev, "%s, ab850x charger bug\n", __func__);
-
-	/* if (di->cable_type != POWER_SUPPLY_TYPE_BATTERY) { */
-	/*	di->flags.irq_flag &= ~F_CHG_WD_EXP; */
-	/* 	di->flags.irq_flag &= ~F_MAIN_THERMAL_PROT; */
-	/* 	di->flags.irq_flag &= ~F_USB_THERMAL_PROT; */
-	/* 	di->flags.irq_flag_shadow &= ~F_CHG_WD_EXP; */
-	/* 	di->flags.irq_flag_shadow &= ~F_MAIN_THERMAL_PROT; */
-	/* 	di->flags.irq_flag_shadow &= ~F_USB_THERMAL_PROT; */
-
-	/* 	ab8500_chg_set_charge(di, true); */
-	/* } */
+	state = POWER_SUPPLY_TYPE_BATTERY;
+	if (get_battery_data(di).abb_set_cable_state)
+		get_battery_data(di).abb_set_cable_state(state);
 }
 
 /**
@@ -1203,10 +1326,11 @@ static void ab8500_chg_check_hw_failure_work(struct work_struct *work)
 			ab8500_chg_set_charge(di, false);
 			if ((di->flags.irq_flag & F_CHG_WD_EXP) ||
 			    (di->flags.irq_flag & F_MAIN_THERMAL_PROT) ||
-			    (di->flags.irq_flag & F_USB_THERMAL_PROT)) {
+			    (di->flags.irq_flag & F_USB_THERMAL_PROT) ||
+			    (di->flags.irq_flag & F_USB_CHARGER_NOT_OK)) {
 				queue_delayed_work(di->charger_wq,
 					&di->check_hw_failure_delay_work,
-					round_jiffies(HZ*15));
+					round_jiffies(HZ*1));
 			}
 		} else if (!(chg_status & ab8500_event_list[i].reg_mask) &&
 			   (di->flags.irq_flag_shadow &
@@ -1404,6 +1528,7 @@ static irqreturn_t ab8500_chg_vbusdetf_handler(int irq, void *data)
 	dev_err(di->dev, "VBUS falling detected\n");
 
 	get_battery_data(di).abb_set_vbus_state(false);
+	di->usbnotok_count = 0;
 
 	return IRQ_HANDLED;
 }
@@ -1501,6 +1626,8 @@ static irqreturn_t ab8500_chg_usbchthprotf_handler(int irq, void *data)
 static irqreturn_t ab8500_chg_usbchargernotokr_handler(int irq, void *data)
 {
 	struct ab8500_charger_info *di = data;
+	u8 usblinkstatus;
+	int ret = 0;
 
 	dev_err(di->dev, "Not allowed USB charger detected\n");
 
@@ -1508,7 +1635,24 @@ static irqreturn_t ab8500_chg_usbchargernotokr_handler(int irq, void *data)
 	if (!di->flags.irq_first)
 		di->flags.irq_first |= F_USB_CHARGER_NOT_OK;
 
-	queue_delayed_work(di->charger_wq, &di->check_hw_failure_work, 0);
+	ret = abx500_get_register_interruptible(di->dev,
+				0x05, 0x94, &usblinkstatus);
+
+	dev_info(di->dev, "%s usblinkstatus = 0x%x, count = %d\n",
+		 __func__, usblinkstatus, di->usbnotok_count);
+
+	if ((usblinkstatus & 0xF8) == 0x70) {
+		if (di->usbnotok_count < 3) {
+			di->usbnotok_count++;
+			queue_delayed_work(di->charger_wq,
+					   &di->reset_chg_counter_work, 0);
+		} else {
+			di->usbnotok_count = 0;
+			get_battery_data(di).abb_set_vbus_state(false);
+			queue_delayed_work(di->charger_wq,
+					   &di->check_hw_failure_work, 0);
+		}
+	}
 
 	return IRQ_HANDLED;
 }
@@ -1905,7 +2049,8 @@ static int ab8500_chg_resume(struct platform_device *pdev)
 			&di->check_hw_failure_work, 0);
 	}
 
-	flush_delayed_work_sync(&di->chg_attached_work);
+	if (is_ab8500(di->parent))
+		flush_delayed_work_sync(&di->chg_attached_work);
 	flush_delayed_work_sync(&di->kick_wd_work);
 
 	return 0;
@@ -1920,7 +2065,8 @@ static int ab8500_chg_suspend(struct platform_device *pdev,
 	if (delayed_work_pending(&di->check_hw_failure_work))
 		cancel_delayed_work(&di->check_hw_failure_work);
 
-	flush_delayed_work_sync(&di->chg_attached_work);
+	if (is_ab8500(di->parent))
+		flush_delayed_work_sync(&di->chg_attached_work);
 	flush_delayed_work_sync(&di->kick_wd_work);
 
 	return 0;
@@ -2046,6 +2192,8 @@ static int ab8500_chg_get_property(struct power_supply *psy,
 		break;
 	/* Battery VF check */
 	case POWER_SUPPLY_PROP_PRESENT:
+		if (di->is_charging)
+			ab8500_chg_check_input_curr(di);
 		val->intval = ab8500_chg_vf_check(di);
 		break;
 	/* OVP Polling */
@@ -2059,6 +2207,10 @@ static int ab8500_chg_get_property(struct power_supply *psy,
 	/* Charging Current */
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		val->intval = di->charging_current;
+		break;
+
+	case POWER_SUPPLY_PROP_TECHNOLOGY:
+		ab8500_chg_dump_reg(di);
 		break;
 
 	default:
@@ -2222,6 +2374,9 @@ static int __devinit ab8500_chg_probe(struct platform_device *pdev)
 
 	INIT_DELAYED_WORK_DEFERRABLE(&di->check_hw_failure_delay_work,
 		ab8500_chg_check_hw_failure_delay_work);
+
+	INIT_DELAYED_WORK_DEFERRABLE(&di->reset_chg_counter_work,
+		ab8500_chg_reset_chg_counter_work);
 
 	INIT_DELAYED_WORK(&di->chg_attached_work,
 			  ab8500_chg_attached_work);

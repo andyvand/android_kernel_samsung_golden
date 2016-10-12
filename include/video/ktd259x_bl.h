@@ -36,6 +36,11 @@ struct ktd259x_bl_platform_data {
 	the requested brightness and the current ratio. */
 	int max_brightness;
 	const unsigned short *brightness_to_current_ratio;
+
+	struct backlight_device *bd;
+
+	bool	external_bl_control;
+	void	(*bl_on_off)(struct backlight_device *bd, bool);
 };
 
 #endif

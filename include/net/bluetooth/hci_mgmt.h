@@ -886,6 +886,32 @@ struct hci_rp_le_test_end {
 	__u16	num_pkts;
 } __packed;
 
+#ifdef CONFIG_BT_CG2900
+#define HCI_OP_FLOW_SPECIFICATION				0x0810
+#define HCI_OP_VS_EXT_FLOW_SPECIFICATION		0xFCD5
+struct flow_spec{
+	uint8_t direction;		/* 0 = outgoing flow */
+	uint8_t service_type;	/* 2 = guaranteed */
+	uint32_t token_rate;	/* Bytes per seconds */
+	uint32_t token_bucket_size;	/* Bytes */
+	uint32_t peak_bandwidth;		/* Byte per seconds */
+	uint32_t access_latency;		/* Microseconds */
+} __packed;
+struct flow_spec_cp{
+	uint16_t handle;
+	uint8_t flags;		/* Reserved */
+	struct flow_spec spec;
+} __packed;
+struct vs_ext_flow_spec_cp{
+	uint16_t handle;
+	uint16_t service_interval;
+	uint16_t out_service_window;
+	uint16_t in_service_window;
+	uint8_t cqae;
+	uint16_t packet_size;
+} __packed;
+#endif
+
 /* ---- HCI Events ---- */
 #define HCI_EV_INQUIRY_COMPLETE		0x01
 
@@ -1174,6 +1200,22 @@ struct hci_ev_remote_host_features {
 struct hci_ev_le_meta {
 	__u8     subevent;
 } __packed;
+
+#ifdef CONFIG_BT_CG2900
+#define EVT_FLOW_SPEC_COMPLETE		0x21
+struct hci_ev_flow_spec_complete {
+	uint8_t status;
+	uint16_t handle;
+	uint8_t flags;
+	struct flow_spec spec;
+}__packed;
+struct hci_ev_vs_ext_flow_spec_complete {
+	uint8_t status;
+	uint16_t handle;
+	uint16_t interval;
+	uint16_t window;
+}__packed;
+#endif
 
 /* Low energy meta events */
 #define HCI_EV_LE_CONN_COMPLETE		0x01

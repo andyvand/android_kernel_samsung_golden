@@ -211,12 +211,13 @@ struct mmio_input_output_t*)
 struct mmio_input_output_t*)
 #endif
 
-#define MMIO_CAM_SYSTEM_REV     _IOW(MMIO_MAGIC_NUMBER, 0x12, int*)
-#define MMIO_CAM_FLASH_ON_OFF     _IOW(MMIO_MAGIC_NUMBER, 0x13, int*)
-#define MMIO_CAM_FLASH_SET_MODE   _IOW(MMIO_MAGIC_NUMBER, 0x14, int*)
+#define MMIO_CAM_SYSTEM_REV         _IOW(MMIO_MAGIC_NUMBER, 0x12, int*)
+#define MMIO_CAM_FLASH_ON_OFF       _IOW(MMIO_MAGIC_NUMBER, 0x13, int*)
+#define MMIO_CAM_FLASH_SET_MODE     _IOW(MMIO_MAGIC_NUMBER, 0x14, int*)
 #define MMIO_CAM_GPIO_PIN_CONTROL   _IOW(MMIO_MAGIC_NUMBER, 0x15, int*)
-#define MMIO_CAM_POWER_PIN_CONTROL   _IOW(MMIO_MAGIC_NUMBER, 0x16, int*)
-#define MMIO_CAM_FRONT_CAM_ID        _IOW(MMIO_MAGIC_NUMBER, 0x17, int*)
+#define MMIO_CAM_POWER_PIN_CONTROL  _IOW(MMIO_MAGIC_NUMBER, 0x16, int*)
+#define MMIO_CAM_FRONT_CAM_ID       _IOW(MMIO_MAGIC_NUMBER, 0x17, int*)
+#define MMIO_CAM_REAR_VENDOR_ID     _IOW(MMIO_MAGIC_NUMBER, 0x18, int*)
 #endif /* USER_SIDE_INTERFACE */
 
 #endif

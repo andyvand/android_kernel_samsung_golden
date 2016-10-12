@@ -37,11 +37,11 @@
 #include <linux/mfd/abx500/ab8500-denc.h>
 #include <linux/spi/stm_msp.h>
 #include <plat/gpio-nomadik.h>
-#include <linux/input/mms1xx_ts.h>
+#include <linux/input/mms134s_ts.h>
 #include <linux/leds.h>
 #include <linux/leds-regulator.h>
 #include <linux/mfd/abx500/ux500_sysctrl.h>
-#include <video/ktd259x_bl.h>
+#include <video/ktd253x_bl.h>
 #include <../drivers/staging/android/timed_gpio.h>
 
 #include <net/bluetooth/bluetooth.h>
@@ -163,47 +163,33 @@ struct yas_platform_data yas_data = {
 /* -------------------------------------------------------------------------
  * GP2A PROXIMITY SENSOR PLATFORM-SPECIFIC CODE AND DATA
  * ------------------------------------------------------------------------- */
-struct regulator *gp2a_vcc_reg;
+struct regulator *gp2a_vdd_reg;
 struct regulator *gp2a_vio_reg;
 struct regulator *gp2a_vled_reg;
 
-static int __init gp2a_setup(void);
+static int __init gp2a_setup(struct device * dev);
+static int __init gp2a_teardown(void);
 static void gp2a_pwr(bool on);
 
 
 static struct gp2a_platform_data gp2a_plat_data __initdata = {
-	.ps_vout_gpio	= KYLE_GPIO_PS_INT,
-	.als_supported	= false,
+	.ps_vout_gpio = KYLE_GPIO_PS_INT,
+	.als_supported = false,
 	.hw_setup	= gp2a_setup,
-	.hw_pwr 	= gp2a_pwr,
+	.hw_teardown = gp2a_teardown,
+	.hw_pwr = gp2a_pwr,
 };
 
-static int __init gp2a_setup(void)
+static int __init gp2a_setup(struct device * dev)
 {
 	int err;
 
-	/* Configure the GPIO for the interrupt */
-	err = gpio_request(gp2a_plat_data.ps_vout_gpio, "PS_VOUT");
-	if (err < 0) {
-		pr_err("PS_VOUT: failed to request GPIO %d,"
-			" err %d\n", gp2a_plat_data.ps_vout_gpio, err);
+	pr_info("%s is called", __func__);
 
-		goto err1;
-	}
-
-	err = gpio_direction_input(gp2a_plat_data.ps_vout_gpio);
-	if (err < 0) {
-		pr_err("PS_VOUT: failed to configure input"
-			" direction for GPIO %d, err %d\n",
-			gp2a_plat_data.ps_vout_gpio, err);
-
-		goto err2;
-	}
-
-	gp2a_vcc_reg = regulator_get(dev, "v-prox-vcc");
-	if (IS_ERR(gp2a_vcc_reg)) {
-		pr_err("[%s] Failed to get v-prox-vcc regulator for gp2a\n", __func__);
-		err = PTR_ERR(gp2a_vcc_reg);
+	gp2a_vdd_reg = regulator_get(dev, "v-prox-vdd");
+	if (IS_ERR(gp2a_vdd_reg)) {
+		pr_err("[%s] Failed to get v-prox-vdd regulator for gp2a\n", __func__);
+		err = PTR_ERR(gp2a_vdd_reg);
 		goto err2;
 	}
 
@@ -233,37 +219,55 @@ err1:
 	return err;
 }
 
+static int __init gp2a_teardown(void)
+{
+	int ret = 0;
+
+	pr_info("%s, is called\n", __func__);
+	if (gp2a_vdd_reg) {
+		if (regulator_is_enabled(gp2a_vdd_reg))
+			regulator_disable((gp2a_vdd_reg));
+		regulator_put(gp2a_vdd_reg);
+	}
+	if (gp2a_vio_reg) {
+		if (regulator_is_enabled(gp2a_vio_reg))
+			regulator_disable((gp2a_vio_reg));
+		regulator_put(gp2a_vio_reg);
+	}
+	return ret;
+}
+
 static void gp2a_pwr(bool on)
 {
 	int ret;
 
 	if (on) {
-		printk(KERN_INFO "GP2A power enabled\n");
+		pr_info("GP2A power enabled\n");
 
 		if ( gp2a_vled_reg ){
 			ret = regulator_enable(gp2a_vled_reg);
 			if (ret < 0)
-				printk(KERN_ERR "GP2A VLED enable failed (%d)\n", ret);
+				pr_err("GP2A VLED enable failed (%d)\n", ret);
 		}
-		ret = regulator_enable(gp2a_vcc_reg);
+		ret = regulator_enable(gp2a_vdd_reg);
 		if (ret < 0)
-			printk(KERN_ERR "GP2A VCC enable failed (%d)\n", ret);
+			pr_err("GP2A VDD enable failed (%d)\n", ret);
 		ret = regulator_enable(gp2a_vio_reg);
 		if (ret < 0)
-			printk(KERN_ERR "GP2A VIO enable failed (%d)\n", ret);
+			pr_err("GP2A VIO enable failed (%d)\n", ret);
 	} else {
-		printk(KERN_INFO "GP2A power disabled\n");
+		pr_info("GP2A power disabled\n");
 		if ( gp2a_vled_reg ){
 			ret = regulator_disable(gp2a_vled_reg);
 			if (ret < 0)
-				printk(KERN_ERR "GP2A VLED disable failed (%d)\n", ret);
+				pr_err("GP2A VLED disable failed (%d)\n", ret);
 		}
-		ret = regulator_disable(gp2a_vcc_reg);
+		ret = regulator_disable(gp2a_vdd_reg);
 		if (ret < 0)
-			printk(KERN_ERR "GP2A VCC disable failed (%d)\n", ret);
+			pr_err("GP2A VDD disable failed (%d)\n", ret);
 		ret = regulator_disable(gp2a_vio_reg);
 		if (ret < 0)
-			printk(KERN_ERR "GP2A VIO disable failed (%d)\n", ret);
+			pr_err("GP2A VIO disable failed (%d)\n", ret);
 	}
 }
 #endif
@@ -458,7 +462,7 @@ static struct usb_switch fsa880_data =	{
 };
 #endif
 
-#if defined(CONFIG_TOUCHSCREEN_MMS1XX_TS)
+#if defined(CONFIG_TOUCHSCREEN_MMS134S_TS)
 static void mms_ts_int_set_pull(bool to_up)
 {
 	int ret;
@@ -523,10 +527,11 @@ static void mms_ts_vdd_on(struct device *dev, bool on)
 	}
 
 	if (on & !reg_enabled){
-		ret = regulator_enable(tsp_reg_3v3);
-
 		if ( system_rev >= KYLE_ATT_R0_1 )
-			ret |= regulator_enable(tsp_reg_1v8);
+			ret = regulator_enable(tsp_reg_1v8);
+		ret |= regulator_enable(tsp_reg_3v3);
+
+
 	}
 	else if (reg_enabled){
 		ret = regulator_disable(tsp_reg_3v3);
@@ -543,12 +548,12 @@ static void mms_ts_vdd_on(struct device *dev, bool on)
 
 static unsigned int mms_ts_key_map[] = {KEY_MENU, KEY_BACK};
 
-struct mms_ts_platform_data mms1xx_ts_pdata = {
+struct mms_ts_platform_data mms134s_ts_pdata = {
 	.max_x		= 480,
 	.max_y		= 800,
 
 	.num_rx		= 12,	/* number of RX channels in chip */
-	.num_tx		= 22,	/* number of TX channels in chip */
+	.num_tx		= 19,	/* number of TX channels in chip */
 	.fw_ver_reg	= 0xF3,	/* Register address for Firmware version */
 	.max_fingers	= 5,	/* supported by firmware */
 
@@ -556,8 +561,13 @@ struct mms_ts_platform_data mms1xx_ts_pdata = {
 	.gpio_scl	= KYLE_GPIO_TSP_SCL,
 	.gpio_int	= KYLE_GPIO_TSP_INT_1V8,
 	.pin_configure	= mms_ts_pin_configure,
-	.fw_name_ums	= "/sdcard/firmware/melfas/mms134_ts.fw.bin",
-//	.fw_name_builtin = "MDH_KYLE_EU_R10_VD34.fw",
+
+	.fw_name_ums_0a		= "/sdcard/firmware/melfas/I407_ME_0A.fw.bin",
+	.fw_name_ums_0f		= "/sdcard/firmware/melfas/I407_ME_0F.fw.bin",
+	.fw_name_ums_47		= "/sdcard/firmware/melfas/I407_ME_47.fw.bin",
+	.fw_name_builtin_0a	= "melfas/I407_ME_0A.fw",
+	.fw_name_builtin_0f	= "melfas/I407_ME_0F.fw",
+	.fw_name_builtin_47	= "melfas/I407_ME_47.fw",
 
 	.key_map	= mms_ts_key_map,
 	.key_nums	= ARRAY_SIZE(mms_ts_key_map),
@@ -566,7 +576,7 @@ struct mms_ts_platform_data mms1xx_ts_pdata = {
 	.vdd_on		= mms_ts_vdd_on,
 };
 
-void __init mms1xx_ts_init(void)
+void __init mms134s_ts_init(void)
 {
 	gpio_request(KYLE_GPIO_TSP_INT_1V8, "tsp_int_n");
 	gpio_direction_input(KYLE_GPIO_TSP_INT_1V8);
@@ -589,6 +599,13 @@ static struct i2c_board_info __initdata kyle_r0_0_i2c0_devices[] = {
 };
 
 static struct i2c_board_info __initdata kyle_r0_1_i2c0_devices[] = {
+#if defined(CONFIG_PROXIMITY_GP2A)
+	{
+		/* GP2A proximity sensor */
+		I2C_BOARD_INFO(GP2A_I2C_DEVICE_NAME, 0x44),
+		.platform_data = &gp2a_plat_data,
+	},
+#endif
 #if defined(CONFIG_PROXIMITY_PX3315)
 	{
 		/* PX3315 proximity sensor */
@@ -612,10 +629,10 @@ static struct i2c_board_info __initdata kyle_r0_0_i2c2_devices[] = {
 };
 
 static struct i2c_board_info __initdata kyle_r0_0_i2c3_devices[] = {
-#if defined(CONFIG_TOUCHSCREEN_MMS1XX_TS)
+#if defined(CONFIG_TOUCHSCREEN_MMS134S_TS)
 	{
 		I2C_BOARD_INFO("mms_ts", 0x48),
-		.platform_data	= &mms1xx_ts_pdata,
+		.platform_data	= &mms134s_ts_pdata,
 		.irq = GPIO_TO_IRQ(KYLE_GPIO_TSP_INT_1V8),
 	},
 #endif
@@ -1275,7 +1292,7 @@ static struct ab8500_gpio_platform_data ab8505_gpio_pdata = {
 	 * GPIO2/3(GpioPud1) = 1 and GPIO10/11(GpioPud2) = 1.
 	 * GPIO13(GpioPud2) = 1 and GPIO50(GpioPud7) = 1.
 	 */
-	.config_pullups    = {0xE6, 0x17, 0x00, 0x00, 0x00, 0x00, 0x02},
+	.config_pullups    = {0xE7, 0x17, 0x00, 0x00, 0x00, 0x00, 0x06},
 };
 
 
@@ -1303,34 +1320,34 @@ static struct sec_jack_zone sec_jack_zones[] = {
 		.jack_type = SEC_HEADSET_3POLE,
 	},
 	{
-		/* 0 < adc <= 635, unstable zone, default to 3pole if it stays
+		/* 0 < adc <= 837, unstable zone, default to 3pole if it stays
 		 * in this range for a 600ms (30ms delays, 20 samples)
 		 */
-		.adc_high = 635,
+		.adc_high = 837,
 		.delay_ms = 30,
 		.check_count = 20,
 		.jack_type = SEC_HEADSET_3POLE,
 	},
 	{
-		/* 635 < adc <= 687, unstable zone, default to 4pole if it
+		/* 837 < adc <= 852, unstable zone, default to 4pole if it
 		 * stays in this range for 900ms (30ms delays, 30 samples)
 		 */
-		.adc_high = 687,
+		.adc_high = 852,
 		.delay_ms = 30,
 		.check_count = 30,
 		.jack_type = SEC_HEADSET_4POLE,
 	},
 	{
-		/* 687 < adc <= 1700, default to 4 pole if it stays */
+		/* 852 < adc <= 1650, default to 4 pole if it stays */
 		/* in this range for 40ms (20ms delays, 2 samples)
 		 */
-		.adc_high = 1700,
+		.adc_high = 1650,
 		.delay_ms = 20,
 		.check_count = 2,
 		.jack_type = SEC_HEADSET_4POLE,
 	},
 	{
-		/* adc > 1850, unstable zone, default to 3pole if it stays
+		/* adc > 1650, unstable zone, default to 3pole if it stays
 		 * in this range for a second (10ms delays, 100 samples)
 		 */
 		.adc_high = 0x7fffffff,
@@ -1343,21 +1360,21 @@ static struct sec_jack_zone sec_jack_zones[] = {
 /* to support 3-buttons earjack */
 static struct sec_jack_buttons_zone sec_jack_buttons_zones[] = {
 	{
-		/* 0 <= adc <=102, stable zone */
+		/* 0 <= adc <=111, stable zone */
 		.code		= KEY_MEDIA,
 		.adc_low	= 0,
-		.adc_high	= 102,
+		.adc_high	= 111,
 	},
 	{
-		/* 103 <= adc <= 213, stable zone */
+		/* 112 <= adc <= 238, stable zone */
 		.code		= KEY_VOLUMEUP,
-		.adc_low	= 103,
-		.adc_high	= 213,
+		.adc_low	= 112,
+		.adc_high	= 238,
 	},
 	{
-		/* 214 <= adc <= 680, stable zone */
+		/* 239 <= adc <= 680, stable zone */
 		.code		= KEY_VOLUMEDOWN,
-		.adc_low	= 214,
+		.adc_low	= 239,
 		.adc_high	= 680,
 	},
 };
@@ -1380,18 +1397,12 @@ static void sec_jack_mach_init(struct platform_device *pdev)
 
 	/* initialise threshold for ACCDETECT2 comparator1 and comparator2 */
 	ret = abx500_set_register_interruptible(&pdev->dev, AB8500_ECI_AV_ACC,
-						0x81, 0xB3);
+						0x81, 0xB4);
 	if (ret < 0)
 		pr_err("%s: ab8500 write failed\n", __func__);
 
-	if ( system_rev < KYLE_ATT_R0_2 ){ //KSND
-		ret = abx500_set_register_interruptible(&pdev->dev, AB8500_ECI_AV_ACC,
-							0x82, 0x33);
-	} else {
-		ret = abx500_set_register_interruptible(&pdev->dev, AB8500_ECI_AV_ACC,
-							0x82, 0x31);
-	}
-
+	ret = abx500_set_register_interruptible(&pdev->dev, AB8500_ECI_AV_ACC,
+						0x82, 0x33); //KSND
 	if (ret < 0)
 		pr_err("%s: ab8500 write failed\n", __func__);
 
@@ -1407,8 +1418,11 @@ int sec_jack_get_det_level(struct platform_device *pdev)
 	u8 value = 0;
 	int ret = 0;
 
-	abx500_get_register_interruptible(&pdev->dev, AB8500_INTERRUPT, 0x4,
+	ret = abx500_get_register_interruptible(&pdev->dev, AB8500_INTERRUPT, 0x4,
 		&value);
+	if (ret < 0)
+		return ret;
+
 	ret = (value & 0x04) >> 2;
 	pr_info("%s: ret=%x\n", __func__, ret);
 
@@ -1427,19 +1441,23 @@ struct sec_jack_platform_data sec_jack_pdata = {
 	.det_f = "ACC_DETECT_1DB_F",
 	.buttons_r = "ACC_DETECT_21DB_R",
 	.buttons_f = "ACC_DETECT_21DB_F",
-	.regulator_mic_source = "v-amic1"
+	.regulator_mic_source = "v-amic1",
+#ifdef CONFIG_SAMSUNG_JACK_SW_WATERPROOF
+	.ear_reselector_zone    = 1650,
+#endif
 };
 #endif
 
+#if 0
 static struct ab8500_led_pwm leds_pwm_data[] = {
 
 };
-
 
 struct ab8500_pwmled_platform_data kyle_pwmled_plat_data = {
 	.num_pwm = 0,
 	.leds = leds_pwm_data,
 };
+#endif
 
 #ifdef CONFIG_MODEM_U8500
 static struct platform_device u8500_modem_dev = {
@@ -1474,11 +1492,11 @@ static struct resource ab8500_resources[] = {
 };
 
 
-static struct ab8500_platform_data ab8505_platdata = {
+struct ab8500_platform_data ab8505_platdata = {
 	.irq_base	= MOP500_AB8500_IRQ_BASE,
-	.regulator	= &kyle_ab8505_regulator_plat_data,
+	.regulator	= &kyle_r0_0_regulator_plat_data,
 #ifdef CONFIG_BATTERY_SAMSUNG
-	.sec_bat	= &sec_battery_pdata,
+	.sec_bat = &sec_battery_pdata,
 #else
 	.battery	= &ab8500_bm_data,
 	.charger	= &ab8500_charger_plat_data,
@@ -1624,14 +1642,14 @@ static struct amba_pl011_data uart2_plat = {
 
 
 
-#if defined(CONFIG_BACKLIGHT_KTD259)
+#if defined(CONFIG_BACKLIGHT_KTD253)
 /* The following table is used to convert brightness level to the LED
     Current Ratio expressed as (full current) /(n * 32).
     i.e. 1 = 1/32 full current. Zero indicates LED is powered off.
     The table is intended to allow the brightness level to be "tuned"
     to compensate for non-linearity of brightness relative to current.
 */
-static const unsigned short ktd259CurrentRatioLookupTable[] = {
+static const unsigned short ktd253CurrentRatioLookupTable[] = {
 0,	/* (0/32)		KTD259_BACKLIGHT_OFF */
 30,	/* (1/32)		KTD259_MIN_CURRENT_RATIO */
 39,	/* (2/32) */
@@ -1667,17 +1685,20 @@ static const unsigned short ktd259CurrentRatioLookupTable[] = {
 255	/* (32/32)	KTD259_MAX_CURRENT_RATIO */
 };
 
-static struct ktd259x_bl_platform_data kyle_bl_platform_info = {
+static struct ktd253x_bl_platform_data kyle_bl_platform_info = {
 	.bl_name			= "pwm-backlight",
 	.ctrl_gpio			= KYLE_GPIO_LCD_BL_CTRL,
 	.ctrl_high			= 1,
 	.ctrl_low			= 0,
 	.max_brightness			= 255,
-	.brightness_to_current_ratio	= ktd259CurrentRatioLookupTable,
+	.brightness_to_current_ratio	= ktd253CurrentRatioLookupTable,
+
+	/* Control backlight on/off via callback function to synchronise with display on/off */
+	.external_bl_control		= true,
 };
 
 static struct platform_device kyle_backlight_device = {
-	.name = BL_DRIVER_NAME_KTD259,
+	.name = BL_DRIVER_NAME_KTD253,
 	.id = -1,
 	.dev = {
 		.platform_data = &kyle_bl_platform_info,
@@ -1837,7 +1858,7 @@ static struct platform_device *platform_devs[] __initdata = {
 #ifdef CONFIG_RFKILL
 	&sec_device_rfkill,
 #endif
-#if defined(CONFIG_BACKLIGHT_KTD259)
+#if defined(CONFIG_BACKLIGHT_KTD253)
 	&kyle_backlight_device,
 #endif
 #ifdef CONFIG_ANDROID_TIMED_GPIO
@@ -1851,6 +1872,13 @@ static struct platform_device *platform_devs[] __initdata = {
 #endif
 };
 
+/* Callback function from display driver used to control backlight on/off */
+void kyle_backlight_on_off(bool on)
+{
+	if (kyle_bl_platform_info.external_bl_control && kyle_bl_platform_info.bl_on_off)
+		kyle_bl_platform_info.bl_on_off(kyle_bl_platform_info.bd, on);
+}
+
 static void __init kyle_i2c_init(void)
 {
 	db8500_add_i2c0(&kyle_i2c0_data);
@@ -1860,48 +1888,46 @@ static void __init kyle_i2c_init(void)
 
 	switch (system_rev)
 	{
-		case KYLE_ATT_R0_0:
-			i2c_register_board_info(0,
-				ARRAY_AND_SIZE(kyle_r0_0_i2c0_devices));
-			/*
-			 * Using external micro-USB switcher.
-			 */
-			i2c_register_board_info(1,
-				ARRAY_AND_SIZE(kyle_r0_0_i2c1_devices));
-			i2c_register_board_info(2,
-				ARRAY_AND_SIZE(kyle_r0_0_i2c2_devices));
-			i2c_register_board_info(3,
-				ARRAY_AND_SIZE(kyle_r0_0_i2c3_devices));
-			platform_device_register(&kyle_gpio_i2c4_pdata);
-			i2c_register_board_info(4,
-				ARRAY_AND_SIZE(kyle_r0_0_gpio_i2c4_devices));
-			platform_device_register(&kyle_gpio_i2c5_pdata);
-			i2c_register_board_info(5,
-				ARRAY_AND_SIZE(kyle_r0_0_gpio_i2c5_devices));
-			platform_device_register(&kyle_gpio_i2c6_pdata);
-			i2c_register_board_info(6,
-				ARRAY_AND_SIZE(kyle_r0_0_gpio_i2c6_devices));
-		break;
-
-		case KYLE_ATT_R0_1:
-			i2c_register_board_info(0,
-				ARRAY_AND_SIZE(kyle_r0_1_i2c0_devices));
-			i2c_register_board_info(2,
-				ARRAY_AND_SIZE(kyle_r0_0_i2c2_devices));
-			i2c_register_board_info(3,
-				ARRAY_AND_SIZE(kyle_r0_0_i2c3_devices));
-			platform_device_register(&kyle_gpio_i2c4_pdata);
-			i2c_register_board_info(4,
-				ARRAY_AND_SIZE(kyle_r0_0_gpio_i2c4_devices));
-			platform_device_register(&kyle_gpio_i2c6_pdata);
-			i2c_register_board_info(6,
-				ARRAY_AND_SIZE(kyle_r0_1_gpio_i2c6_devices));
-	    platform_device_register(&kyle_gpio_i2c7_pdata);
-	    i2c_register_board_info(7,
-		ARRAY_AND_SIZE(kyle_r0_1_gpio_i2c7_devices));
+	case KYLE_ATT_R0_0:
+		i2c_register_board_info(0,
+			ARRAY_AND_SIZE(kyle_r0_0_i2c0_devices));
+		/*
+		 * Using external micro-USB switcher.
+		 */
+		i2c_register_board_info(1,
+			ARRAY_AND_SIZE(kyle_r0_0_i2c1_devices));
+		i2c_register_board_info(2,
+			ARRAY_AND_SIZE(kyle_r0_0_i2c2_devices));
+		i2c_register_board_info(3,
+			ARRAY_AND_SIZE(kyle_r0_0_i2c3_devices));
+		platform_device_register(&kyle_gpio_i2c4_pdata);
+		i2c_register_board_info(4,
+			ARRAY_AND_SIZE(kyle_r0_0_gpio_i2c4_devices));
+		platform_device_register(&kyle_gpio_i2c5_pdata);
+		i2c_register_board_info(5,
+			ARRAY_AND_SIZE(kyle_r0_0_gpio_i2c5_devices));
+		platform_device_register(&kyle_gpio_i2c6_pdata);
+		i2c_register_board_info(6,
+			ARRAY_AND_SIZE(kyle_r0_0_gpio_i2c6_devices));
 	break;
 
+	case KYLE_ATT_R0_1:
 	default:
+		i2c_register_board_info(0,
+			ARRAY_AND_SIZE(kyle_r0_1_i2c0_devices));
+		i2c_register_board_info(2,
+			ARRAY_AND_SIZE(kyle_r0_0_i2c2_devices));
+		i2c_register_board_info(3,
+			ARRAY_AND_SIZE(kyle_r0_0_i2c3_devices));
+		platform_device_register(&kyle_gpio_i2c4_pdata);
+		i2c_register_board_info(4,
+			ARRAY_AND_SIZE(kyle_r0_0_gpio_i2c4_devices));
+		platform_device_register(&kyle_gpio_i2c6_pdata);
+		i2c_register_board_info(6,
+			ARRAY_AND_SIZE(kyle_r0_1_gpio_i2c6_devices));
+		platform_device_register(&kyle_gpio_i2c7_pdata);
+		i2c_register_board_info(7,
+			ARRAY_AND_SIZE(kyle_r0_1_gpio_i2c7_devices));
 	break;
     }
 }
@@ -1975,27 +2001,12 @@ static void __init kyle_init_machine(void)
 #ifdef CONFIG_USB_ANDROID
 	fetch_usb_serial_no(USB_SERIAL_NUMBER_LEN);
 #endif
+	nmk_gpio_clocks_enable();
 
 	platform_add_devices(platform_devs, ARRAY_SIZE(platform_devs));
 
-	ssg_pins_init();
-
-#ifdef CONFIG_TOUCHSCREEN_MMS1XX_TS
-	mms1xx_ts_init();
-#endif
-
-	u8500_cryp1_hash1_init();
-	kyle_i2c_init();
-	mop500_msp_init();		/* generic for now */
-	kyle_uart_init();
-
-#ifdef CONFIG_KEYBOARD_GPIO
-	platform_device_register(&kyle_gpio_keys_device);
-#endif
-
-	if (system_rev >= KYLE_ATT_R0_1 && system_rev <= KYLE_ATT_R0_1){
-		struct regulator_init_data pTemp;
-		struct regulator_init_data *regulator = ab8505_platdata.regulator->regulator;
+	if (system_rev >= KYLE_ATT_R0_1 ){
+		ab8505_platdata.regulator = &kyle_r0_1_regulator_plat_data;
 
 #ifdef CONFIG_LEDS_CLASS
 #ifdef CONFIG_LEDS_REGULATOR
@@ -2007,32 +2018,9 @@ static void __init kyle_init_machine(void)
 #endif
 #endif
 
-		/*
-		 * SENSOR_1V8 -> AUX6, VREG_TSP_1V8(VREG_LCD_1V8) -> AUX5
-		 * Swap over regulator's consumers and their required setup.
-		 */
-		pTemp = regulator[AB8505_LDO_AUX6];
-
-		regulator[AB8505_LDO_AUX6] = regulator[AB8505_LDO_AUX5];
-
-		regulator[AB8505_LDO_AUX5] = pTemp;
-
-		/*
-		 * VREG_TSP_3V3 AUX4 -> AUX2, SENSOR_LED3V Not used.
-		 * Move over regulator's consumers and their required setup.
-		 */
-		regulator[AB8505_LDO_AUX2] = regulator[AB8505_LDO_AUX4];
-
-
-		regulator[AB8505_LDO_AUX4].consumer_supplies =
-				ab8505_vaux4_consumers_r0_1;
-
-		regulator[AB8505_LDO_AUX4].num_consumer_supplies =
-				ARRAY_SIZE(ab8505_vaux4_consumers_r0_1);
-
 		kyle_bl_platform_info.ctrl_gpio = KYLE_GPIO_LCD_BL_CTRL_R0_1;
 
-	}else if (system_rev == KYLE_ATT_R0_0){
+	} else if (system_rev == KYLE_ATT_R0_0){
 #ifdef CONFIG_LEDS_CLASS
 		/*
 		 * Control Key backlight LEDs by turning
@@ -2041,6 +2029,22 @@ static void __init kyle_init_machine(void)
 		platform_device_register(&kyle_gpio_leds_device);
 #endif
 	}
+
+	ssg_pins_init();
+
+#ifdef CONFIG_TOUCHSCREEN_MMS134S_TS
+	mms134s_ts_init();
+#endif
+
+	u8500_cryp1_hash1_init();
+	kyle_i2c_init();
+	mop500_msp_init();		/* generic for now */
+	kyle_uart_init();
+
+#ifdef CONFIG_KEYBOARD_GPIO
+	platform_device_register(&kyle_gpio_keys_device);
+#endif
+
 #ifdef CONFIG_BATTERY_SAMSUNG
 	sec_init_battery();
 #endif
@@ -2052,6 +2056,8 @@ static void __init kyle_init_machine(void)
 
 	/* This board has full regulator constraints */
 	regulator_has_full_constraints();
+
+	nmk_gpio_clocks_disable();
 }
 
 static int __init jig_smd_status(char *str)

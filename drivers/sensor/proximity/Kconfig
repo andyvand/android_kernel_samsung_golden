@@ -26,6 +26,13 @@ config PROXIMITY_GP2A
 	help
 	  This option enables proximity sensor using GP2AP002S00F.
 
+config PROXIMITY_GP2A030
+     	depends on PROXIMITY
+     	tristate "Proximity sensor driver using GP2A030"
+    	default n
+     	help
+       	  This option enables proximity sensor using GP2AP030S00F.	  
+
 config LIGHT_PROX_GP2A
 	depends on PROXIMITY
 	tristate "Light and  Proximity sensor driver using GP2A"
@@ -61,4 +68,11 @@ config PROXIMITY_PX3315
 	help
 	  This option enables proximity sensor using PX3315.
 
+
+config SENSORS_STK3X1X
+	depends on PROXIMITY
+	tristate "Proximity sensor driver using stk3x1x"
+	default n
+	help
+	  This option enables proximity sensor using stk3x1x.
 

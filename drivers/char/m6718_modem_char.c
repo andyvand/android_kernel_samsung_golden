@@ -572,7 +572,7 @@ out:
 	return err;
 }
 
-const struct file_operations isa_fops = {
+static const struct file_operations isa_fops = {
 	.owner = THIS_MODULE,
 	.open = isa_open,
 	.release = isa_close,

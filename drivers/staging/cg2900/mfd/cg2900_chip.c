@@ -66,6 +66,7 @@
 #define POWER_SW_OFF_WAIT			500	/* ms */
 #define SELFTEST_INITIAL			40	/* ms */
 #define SELFTEST_POLLING			20	/* ms */
+#define CHIP_EPTA_GPIO_TIMEOUT			500	/* ms */
 
 /** CHANNEL_BT_CMD - Bluetooth HCI H:4 channel
  * for Bluetooth commands in the ST-Ericsson connectivity controller.
@@ -244,6 +245,7 @@ enum main_state {
  *					patches.
  * @BOOT_ACTIVATE_PATCHES_AND_SETTINGS:	CG2900 chip driver is activating patches
  *					and settings.
+ * @BOOT_DISABLE_EPTA_GPIOS:	CG2900 chip driver is disabling ePTA gpios.
  * @BOOT_READ_SELFTEST_RESULT:		CG2900 is performing selftests that
  *					shall be read out.
  * @BOOT_READY:				CG2900 chip driver boot is ready.
@@ -255,6 +257,7 @@ enum boot_state {
 	BOOT_GET_FILES_TO_LOAD,
 	BOOT_DOWNLOAD_PATCH,
 	BOOT_ACTIVATE_PATCHES_AND_SETTINGS,
+	BOOT_DISABLE_EPTA_GPIOS,
 	BOOT_READ_SELFTEST_RESULT,
 	BOOT_READY,
 	BOOT_FAILED
@@ -313,6 +316,31 @@ enum fm_radio_mode {
 	FM_RADIO_MODE_FMR = 2
 };
 
+/**
+ * enum epta_state - ePTA gpio state
+ * @CG2900_EPTA_ENABLING: enabling ePTA gpio's
+ * @CG2900_EPTA_DISABLING: disabling ePTA gpio's
+ * @CG2900_EPTA_ENABLED: ePTA is enabled
+ * @CG2900_EPTA_DISABLED: ePTA is disabled
+ */
+enum epta_state {
+	CG2900_EPTA_ENABLING,
+	CG2900_EPTA_DISABLING,
+	CG2900_EPTA_ENABLED,
+	CG2900_EPTA_DISABLED
+};
+
+/**
+ * enum epta_write_address_state - ePTA Write Address State
+ * @CG2900_EPTA_WRITE_ADDRESS_1: Write Address 1
+ * @CG2900_EPTA_WRITE_ADDRESS_2: Write Address 2
+ * @CG2900_EPTA_WRITE_ADDRESS_FINISH: Write Address Finish
+ */
+enum epta_write_address_state {
+	CG2900_EPTA_WRITE_ADDRESS_1,
+    CG2900_EPTA_WRITE_ADDRESS_2,
+	CG2900_EPTA_WRITE_ADDRESS_FINISH
+};
 
 /**
  * struct cg2900_channel_item - List object for channel.
@@ -391,6 +419,9 @@ struct cg2900_skb_data {
  * @mfd_char_size:		Number of MFD char device cells.
  * @h4_channel_for_device:	H4 channel number for sending device
  *				mangement commands.
+ * @clk_user_alive		whether clock user is open/closed
+ * @epta_state			ePTA gpio enable/disable state
+ * @epta_epta_write_address_state	ePTA gpio write address state
  */
 struct cg2900_chip_info {
 	struct device			*dev;
@@ -430,6 +461,9 @@ struct cg2900_chip_info {
 	int				mfd_char_size;
 	int				mfd_extra_char_size;
 	u8				h4_channel_for_device;
+	bool				clk_user_alive;
+	enum epta_state			epta_state;
+	enum epta_write_address_state epta_write_address_state;
 };
 
 /**
@@ -1431,6 +1465,118 @@ static void work_cont_file_download(struct work_struct *work)
 }
 
 /**
+ * work_cont_gpio_disable() - Disable all ePTA gpio's.
+ * @work:	Reference to work data.
+ */
+static void work_cont_gpio_disable(struct work_struct *work)
+{
+	struct cg2900_work *my_work;
+	struct cg2900_chip_dev *dev;
+	struct cg2900_chip_info *info;
+	struct bt_vs_write_register cmd;
+
+	if (!work) {
+		dev_err(MAIN_DEV, "work_cont_gpio_disable: work == NULL\n");
+		return;
+	}
+
+	my_work = container_of(work, struct cg2900_work, work);
+	dev = my_work->user_data;
+	info = dev->c_data;
+
+	switch (info->epta_write_address_state) {
+	case CG2900_EPTA_WRITE_ADDRESS_1:
+		dev_dbg(MAIN_DEV, "CG2900_EPTA_WRITE_ADDRESS_1\n");
+		cmd.opcode = cpu_to_le16(CG2900_BT_OP_VS_WRITE_REGISTER);
+		cmd.plen = 0x0D;
+		cmd.data0 = 0x00;
+		cmd.address_lower = cpu_to_le16(CG2900_EPTA_ADDRESS_LOWER_1);
+		cmd.address_upper = cpu_to_le16(CG2900_EPTA_ADDRESS_UPPER_1);
+		cmd.mask = cpu_to_le16(CG2900_EPTA_MASK_1);
+		cmd.dnt_care = cpu_to_le16(CG2900_EPTA_DONT_CARE);
+		cmd.value = cpu_to_le16(CG2900_EPTA_DISABLE_VALUE_1);
+		cmd.padding = cpu_to_le16(CG2900_EPTA_PADDING);
+		break;
+    case CG2900_EPTA_WRITE_ADDRESS_2:
+        dev_dbg(MAIN_DEV, "CG2900_EPTA_WRITE_ADDRESS_2\n");
+        cmd.opcode = cpu_to_le16(CG2900_BT_OP_VS_WRITE_REGISTER);
+        cmd.plen = 0x0D;
+        cmd.data0 = 0x00;
+        cmd.address_lower = cpu_to_le16(CG2900_EPTA_ADDRESS_LOWER_2);
+        cmd.address_upper = cpu_to_le16(CG2900_EPTA_ADDRESS_UPPER_2);
+        cmd.mask = cpu_to_le16(CG2900_EPTA_MASK_2);
+        cmd.dnt_care = cpu_to_le16(CG2900_EPTA_DONT_CARE);
+        cmd.value = cpu_to_le16(CG2900_EPTA_DISABLE_VALUE_2);
+        cmd.padding = cpu_to_le16(CG2900_EPTA_PADDING);
+        break;
+	case CG2900_EPTA_WRITE_ADDRESS_FINISH:
+	default:
+		/* Not possible, putting only for compiler warnings */
+		break;
+	}
+	
+	cg2900_send_bt_cmd(info->user_in_charge, info->logger,
+			&cmd, sizeof(cmd), CHANNEL_DEBUG);
+	kfree(my_work);
+}
+
+/**
+ * work_cont_gpio_enable() - enable all ePTA gpio's.
+ * @work:	Reference to work data.
+ */
+static void work_cont_gpio_enable(struct work_struct *work)
+{
+	struct cg2900_work *my_work;
+	struct cg2900_chip_dev *dev;
+	struct cg2900_chip_info *info;
+	struct bt_vs_write_register cmd;
+
+	if (!work) {
+		dev_err(MAIN_DEV, "work_cont_gpio_enable: work == NULL\n");
+		return;
+	}
+
+	my_work = container_of(work, struct cg2900_work, work);
+	dev = my_work->user_data;
+	info = dev->c_data;
+
+	switch (info->epta_write_address_state) {
+	case CG2900_EPTA_WRITE_ADDRESS_1:
+		dev_dbg(MAIN_DEV, "CG2900_EPTA_WRITE_ADDRESS_1\n");
+		cmd.opcode = cpu_to_le16(CG2900_BT_OP_VS_WRITE_REGISTER);
+		cmd.plen = 0x0D;
+		cmd.data0 = 0x00;
+		cmd.address_lower = cpu_to_le16(CG2900_EPTA_ADDRESS_LOWER_1);
+		cmd.address_upper = cpu_to_le16(CG2900_EPTA_ADDRESS_UPPER_1);
+		cmd.mask = cpu_to_le16(CG2900_EPTA_MASK_1);
+		cmd.dnt_care = cpu_to_le16(CG2900_EPTA_DONT_CARE);
+		cmd.value = cpu_to_le16(CG2900_EPTA_ENABLE_VALUE_1);
+		cmd.padding = cpu_to_le16(CG2900_EPTA_PADDING);
+		break;
+    case CG2900_EPTA_WRITE_ADDRESS_2:
+        dev_dbg(MAIN_DEV, "CG2900_EPTA_WRITE_ADDRESS_2\n");
+        cmd.opcode = cpu_to_le16(CG2900_BT_OP_VS_WRITE_REGISTER);
+        cmd.plen = 0x0D;
+        cmd.data0 = 0x00;
+        cmd.address_lower = cpu_to_le16(CG2900_EPTA_ADDRESS_LOWER_2);
+        cmd.address_upper = cpu_to_le16(CG2900_EPTA_ADDRESS_UPPER_2);
+        cmd.mask = cpu_to_le16(CG2900_EPTA_MASK_2);
+        cmd.dnt_care = cpu_to_le16(CG2900_EPTA_DONT_CARE);
+        cmd.value = cpu_to_le16(CG2900_EPTA_ENABLE_VALUE_2);
+        cmd.padding = cpu_to_le16(CG2900_EPTA_PADDING);
+        break;
+	case CG2900_EPTA_WRITE_ADDRESS_FINISH:
+	default:
+		/* Not possible, putting only for compiler warnings */
+		break;
+	}
+	
+	cg2900_send_bt_cmd(info->user_in_charge, info->logger,
+			&cmd, sizeof(cmd), CHANNEL_DEBUG);
+	kfree(my_work);
+}
+
+/**
  * work_send_read_selftest_cmd() - HCI VS Read_SelfTests_Result command shall be sent.
  * @work:	Reference to work data.
  */
@@ -1593,6 +1739,80 @@ static bool handle_vs_write_file_block_cmd_complete(struct cg2900_chip_dev *dev,
 }
 
 /**
+ * handle_vs_write_register_cmd_complete() - Handles HCI VS Write Register Command
+ * Complete event.
+ * @data:	Pointer to received HCI data packet.
+ *
+ * Returns:
+ *   true,  if packet was handled internally,
+ *   false, otherwise.
+ */
+static bool handle_vs_write_register_cmd_complete(
+                            struct cg2900_chip_dev *dev,
+						    u8 *data)
+{
+	u8 status = data[0];
+	struct cg2900_chip_info *info = dev->c_data;
+
+	if (info->boot_state == BOOT_DISABLE_EPTA_GPIOS) {
+		if (HCI_BT_ERROR_NO_ERROR == status) {
+			info->epta_write_address_state++;
+			if (info->epta_write_address_state < CG2900_EPTA_WRITE_ADDRESS_FINISH) {
+				cg2900_create_work_item(info->wq,
+							work_cont_gpio_disable,
+							dev);
+			} else {
+				/*
+				 * We are now almost finished. Shut off BT
+				 * Core. It will be re-enabled by the
+				 * Bluetooth driver when needed.
+				 */
+				dev_dbg(BOOT_DEV, "New boot_state: BOOT_READY\n");
+				info->boot_state = BOOT_READY;
+				info->epta_state = CG2900_EPTA_DISABLED;
+				chip_startup_finished(info, 0);
+			}
+		} else {
+			dev_err(BOOT_DEV,
+				"GPIO control command received with"
+				" error 0x%X\n", status);
+			dev_dbg(BOOT_DEV, "New download_state: DOWNLOAD_FAILED\n");
+			info->download_state = DOWNLOAD_FAILED;
+			dev_dbg(BOOT_DEV, "New boot_state: BOOT_FAILED\n");
+			info->boot_state = BOOT_FAILED;
+			cg2900_create_work_item(info->wq,
+						work_reset_after_error,
+						dev);
+			return false;
+		}
+	} else {
+		if (HCI_BT_ERROR_NO_ERROR == status) {
+			info->epta_write_address_state++;
+			if (info->epta_write_address_state < CG2900_EPTA_WRITE_ADDRESS_FINISH) {
+				if (CG2900_EPTA_DISABLING == info->epta_state)
+					cg2900_create_work_item(info->wq,
+    						work_cont_gpio_disable,
+    						dev);
+				else if (CG2900_EPTA_ENABLING == info->epta_state)
+    					cg2900_create_work_item(info->wq,
+    						work_cont_gpio_enable,
+    						dev);
+			} else {
+				if (CG2900_EPTA_DISABLING == info->epta_state)
+        				info->epta_state = CG2900_EPTA_DISABLED;
+				else if (CG2900_EPTA_ENABLING == info->epta_state)
+        				info->epta_state = CG2900_EPTA_ENABLED;
+				wake_up_all(&main_wait_queue);
+			}
+		} else {
+			dev_err(BOOT_DEV, "ePTA gpio enable failed");
+			wake_up_all(&main_wait_queue);
+		}
+	}
+	return true;
+}
+
+/**
  * handle_vs_write_file_block_cmd_status() - Handles HCI VS WriteFileBlock Command Status event.
  * @status:	Returned status of WriteFileBlock command.
  *
@@ -1680,6 +1900,8 @@ static bool handle_vs_system_reset_cmd_complete(struct cg2900_chip_dev *dev,
 		status);
 
 	if (HCI_BT_ERROR_NO_ERROR == status) {
+		/* ePTA lines are enabled after settings are applied */
+		info->epta_state = CG2900_EPTA_ENABLED;
 		if (dev->chip.hci_revision == CG2900_PG2_REV) {
 			/*
 			 * We must now wait for the selftest results. They will
@@ -1693,13 +1915,26 @@ static bool handle_vs_system_reset_cmd_complete(struct cg2900_chip_dev *dev,
 					   msecs_to_jiffies(SELFTEST_INITIAL));
 			info->nbr_of_polls = 0;
 		} else {
-			/*
-			 * We are now almost finished. Shut off BT Core. It will
-			 * be re-enabled by the Bluetooth driver when needed.
-			 */
-			dev_dbg(BOOT_DEV, "New boot_state: BOOT_READY\n");
-			info->boot_state = BOOT_READY;
-			chip_startup_finished(info, 0);
+			if (CG2905_PG2_REV == dev->chip.hci_revision) {
+				info->boot_state = BOOT_DISABLE_EPTA_GPIOS;
+				info->epta_write_address_state =
+                            CG2900_EPTA_WRITE_ADDRESS_1;
+                info->epta_state = CG2900_EPTA_DISABLING;
+				dev_dbg(BOOT_DEV, "New boot_state:"\
+						"BOOT_DISABLE_EPTA_GPIOS\n");
+				cg2900_create_work_item(info->wq,
+							work_cont_gpio_disable,
+							dev);
+			} else {
+				/*
+				 * We are now almost finished. Shut off BT Core.
+				 * It will be re-enabled by the Bluetooth driver
+				 * when needed.
+				 */
+				dev_dbg(BOOT_DEV, "New boot_state: BOOT_READY\n");
+				info->boot_state = BOOT_READY;
+				chip_startup_finished(info, 0);
+			}
 		}
 	} else {
 		dev_err(BOOT_DEV,
@@ -1811,8 +2046,8 @@ static bool handle_rx_data_bt_evt(struct cg2900_chip_dev *dev,
 		op_code = le16_to_cpu(cmd_complete->opcode);
 
 		dev_dbg(dev->dev,
-			"Received Command Complete: op_code = 0x%04X\n",
-			op_code);
+			"Received Command Complete: op_code = 0x%04X, use_dev = %x\n",
+			op_code, use_dev);
 		/* Move to first byte after OCF */
 		data += sizeof(*cmd_complete);
 
@@ -1820,9 +2055,11 @@ static bool handle_rx_data_bt_evt(struct cg2900_chip_dev *dev,
 			pkt_handled = handle_reset_cmd_complete(dev, data);
 		else {
 			if (use_dev) {
-				if (h4_channel != CHANNEL_DEV_MGMT)
+				if (h4_channel != CHANNEL_DEV_MGMT &&
+                    h4_channel != CHANNEL_DEBUG)
 					return false;
-			} else if (h4_channel != CHANNEL_BT_EVT)
+			} else if (h4_channel != CHANNEL_BT_EVT &&
+                    h4_channel != CHANNEL_DEBUG)
 				return false;
 
 			if (op_code == CG2900_BT_OP_VS_STORE_IN_FS)
@@ -1855,7 +2092,11 @@ static bool handle_rx_data_bt_evt(struct cg2900_chip_dev *dev,
 				pkt_handled =
 					handle_vs_system_reset_cmd_complete(
 								dev, data);
-			} else if (op_code ==
+			} else if (op_code == CG2900_BT_OP_VS_WRITE_REGISTER)
+				pkt_handled =
+					handle_vs_write_register_cmd_complete(
+								dev, data);
+			else if (op_code ==
 					CG2900_BT_OP_VS_READ_SELTESTS_RESULT)
 				pkt_handled =
 					handle_vs_read_selftests_cmd_complete(
@@ -2261,6 +2502,7 @@ static void chip_removed(struct cg2900_chip_dev *dev)
 {
 	struct cg2900_chip_info *info = dev->c_data;
 
+	mutex_lock(&main_info->man_mutex);
 	cancel_delayed_work(&info->selftest_work.work);
 	mfd_remove_devices(dev->dev);
 	if (info->file_info.fw_file_ptc) {
@@ -2280,6 +2522,7 @@ static void chip_removed(struct cg2900_chip_dev *dev)
 	dev->c_data = NULL;
 	dev->c_cb.chip_removed = NULL;
 	dev->c_cb.data_from_chip = NULL;
+	mutex_unlock(&main_info->man_mutex);
 }
 
 /**
@@ -2583,6 +2826,61 @@ static int cg2900_open(struct cg2900_user_data *user)
 
 	}
 
+	if (CG2905_PG2_REV == dev->chip.hci_revision &&
+			CG2900_ACTIVE == info->main_state) {
+		if (user->is_clk_user) {
+			info->clk_user_alive = true;
+			dev_dbg(user->dev, "clk:%d epta_en:%d\n",
+					info->clk_user_alive,
+					info->epta_state);
+			/* if user is wlan & epta is disabled then enable it */
+			if (info->epta_state != CG2900_EPTA_ENABLED) {
+				info->epta_state = CG2900_EPTA_ENABLING;
+				info->epta_write_address_state =
+						CG2900_EPTA_WRITE_ADDRESS_1;
+				dev_dbg(user->dev,
+					"WLAN opened, enabling ePTA\n");
+				cg2900_create_work_item(info->wq,
+						work_cont_gpio_enable,
+						dev);
+				wait_event_timeout(main_wait_queue,
+					(CG2900_EPTA_ENABLED
+					== info->epta_state),
+				msecs_to_jiffies(CHIP_EPTA_GPIO_TIMEOUT));
+				if (CG2900_EPTA_ENABLED != info->epta_state)
+					dev_err(user->dev,
+						"ePTA Enable Failed\n");
+			}
+		} else {
+			/*
+			 * if wlan is disabled & epta is enabled
+			 * then disable it
+			 */
+			dev_dbg(user->dev, "clk:%d epta_en:%d\n",
+					info->clk_user_alive,
+					info->epta_state);
+			if (!info->clk_user_alive &&
+				(info->epta_state == CG2900_EPTA_ENABLED)) {
+				info->epta_state = CG2900_EPTA_DISABLING;
+				info->epta_write_address_state =
+						CG2900_EPTA_WRITE_ADDRESS_1;
+				dev_dbg(user->dev,
+					"WLAN not open, so disable ePTA\n");
+				cg2900_create_work_item(info->wq,
+						work_cont_gpio_disable,
+						dev);
+				wait_event_timeout(main_wait_queue,
+					(CG2900_EPTA_DISABLED
+					== info->epta_state),
+					msecs_to_jiffies
+					(CHIP_EPTA_GPIO_TIMEOUT));
+				if (CG2900_EPTA_DISABLED != info->epta_state)
+					dev_err(user->dev,
+						"ePTA Disable Failed\n");
+			}
+		}
+	}
+
 	list_add_tail(&tmp->list, &info->open_channels);
 
 	user->opened = true;
@@ -2812,12 +3110,17 @@ static void cg2900_close(struct cg2900_user_data *user)
 		return;
 	}
 
-	dev_dbg(user->dev, "cg2900_close\n");
-
-	dev = cg2900_get_prv(user);
-	info = dev->c_data;
+	dev_dbg(MAIN_DEV, "cg2900_close\n");
 
 	mutex_lock(&main_info->man_mutex);
+
+	dev = cg2900_get_prv(user);
+	if (!dev)
+		goto finished;
+
+	info = dev->c_data;
+	if (!info)
+		goto finished;
 
 	/*
 	 * Go through each open channel. Remove our channel and check if there
@@ -2837,9 +3140,43 @@ static void cg2900_close(struct cg2900_user_data *user)
 	else if (user->h4_channel == CHANNEL_FM_RADIO && !fm_is_open(info))
 		last_fm_user_removed(info);
 
-	if (keep_powered)
+	if (keep_powered) {
+		/* If user is wlan then disable epta lines */
+		if (CG2905_PG2_REV == dev->chip.hci_revision) {
+			if (user->is_clk_user) {
+    			info->clk_user_alive = false;
+    			if (info->epta_state != CG2900_EPTA_DISABLED) {
+        			info->epta_state = CG2900_EPTA_DISABLING;
+        			info->epta_write_address_state = 
+        					CG2900_EPTA_WRITE_ADDRESS_1;
+        			dev_dbg(user->dev, "WLAN closed, disabling ePTA\n");
+        			cg2900_create_work_item(info->wq,
+        					work_cont_gpio_disable,
+        					dev);
+        			wait_event_timeout(main_wait_queue,
+        				(CG2900_EPTA_DISABLED == info->epta_state),
+        				msecs_to_jiffies(CHIP_EPTA_GPIO_TIMEOUT));
+        			if (CG2900_EPTA_DISABLED != info->epta_state)
+        				dev_err(user->dev, "ePTA Disable Failed\n");
+                 }
+             } else if (!info->clk_user_alive) {
+                info->epta_state = CG2900_EPTA_DISABLING;
+                info->epta_write_address_state = 
+                        CG2900_EPTA_WRITE_ADDRESS_1;
+                dev_dbg(user->dev, "WLAN closed, disabling ePTA\n");
+                cg2900_create_work_item(info->wq,
+                        work_cont_gpio_disable,
+                        dev);
+                wait_event_timeout(main_wait_queue,
+                    (CG2900_EPTA_DISABLED == info->epta_state),
+                    msecs_to_jiffies(CHIP_EPTA_GPIO_TIMEOUT));
+                if (CG2900_EPTA_DISABLED != info->epta_state)
+                    dev_err(user->dev, "ePTA Disable Failed\n");
+             }
+		}
 		/* This was not the last user, we're done. */
 		goto finished;
+	}
 
 	if (CG2900_IDLE == info->main_state)
 		/* Chip has already been shut down. */
@@ -2870,7 +3207,7 @@ static void cg2900_close(struct cg2900_user_data *user)
 finished:
 	mutex_unlock(&main_info->man_mutex);
 	user->opened = false;
-	dev_dbg(user->dev, "H:4 channel closed\n");
+	dev_dbg(MAIN_DEV, "H:4 channel closed\n");
 }
 
 /**
@@ -3650,10 +3987,10 @@ static int fetch_firmware_files(struct cg2900_chip_dev *dev,
 			"CG29XX_%04X_%04X_patch.fw", dev->chip.hci_revision,
 			dev->chip.hci_sub_version);
 	if (err == filename_size_ptc) {
-		dev_dbg(BOOT_DEV, "Downloading patch file %s\n",
+		dev_dbg(info->dev, "Downloading patch file %s\n",
 				info->patch_file_name);
 	} else {
-		dev_err(BOOT_DEV, "Patch file name failed! err=%d\n", err);
+		dev_err(info->dev, "Patch file name failed! err=%d\n", err);
 		goto error_handling;
 	}
 
@@ -3662,7 +3999,7 @@ static int fetch_firmware_files(struct cg2900_chip_dev *dev,
 			info->patch_file_name,
 			dev->dev);
 	if (err < 0) {
-		dev_err(BOOT_DEV, "Couldn't get patch file "
+		dev_err(info->dev, "Couldn't get patch file "
 				"(%d)\n", err);
 		goto error_handling;
 	}
@@ -3676,10 +4013,10 @@ static int fetch_firmware_files(struct cg2900_chip_dev *dev,
 			"CG29XX_%04X_%04X_settings.fw", dev->chip.hci_revision,
 			dev->chip.hci_sub_version);
 	if (err == filename_size_ssf) {
-		dev_dbg(BOOT_DEV, "Downloading settings file %s\n",
+		dev_dbg(info->dev, "Downloading settings file %s\n",
 				info->settings_file_name);
 	} else {
-		dev_err(BOOT_DEV, "Settings file name failed! err=%d\n", err);
+		dev_err(info->dev, "Settings file name failed! err=%d\n", err);
 		goto error_handling;
 	}
 
@@ -3688,7 +4025,7 @@ static int fetch_firmware_files(struct cg2900_chip_dev *dev,
 			info->settings_file_name,
 			info->dev);
 	if (err) {
-		dev_err(BOOT_DEV, "Couldn't get settings file "
+		dev_err(info->dev, "Couldn't get settings file "
 				"(%d)\n", err);
 		goto error_handling;
 	}

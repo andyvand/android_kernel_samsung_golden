@@ -13,8 +13,10 @@
 #include <linux/regulator/machine.h>
 #include <linux/regulator/ab8500.h>
 
-extern struct regulator_init_data kyle_ab8505_regulators[AB8505_NUM_REGULATORS];
+extern struct regulator_init_data kyle_r0_0_regulators[AB8505_NUM_REGULATORS];
+extern struct regulator_init_data kyle_r0_1_regulators[AB8505_NUM_REGULATORS];
 
-extern struct ab8500_regulator_platform_data kyle_ab8505_regulator_plat_data;
+extern struct ab8500_regulator_platform_data kyle_r0_0_regulator_plat_data;
+extern struct ab8500_regulator_platform_data kyle_r0_1_regulator_plat_data;
 
 #endif

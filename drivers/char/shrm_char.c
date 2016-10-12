@@ -812,6 +812,10 @@ static int isa_open(struct inode *inode, struct file *filp)
 	return err;
 }
 
+#ifdef CONFIG_TARGET_ARCH_U8500
+#define isa_fops isa_u8500_fops
+#endif /* CONFIG_TARGET_ARCH_U8500 */
+
 const struct file_operations isa_fops = {
 	.owner = THIS_MODULE,
 	.open = isa_open,

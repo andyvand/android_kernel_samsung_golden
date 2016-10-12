@@ -1413,7 +1413,7 @@ int regulator_enable(struct regulator *regulator)
 	if (ret == 0)
 		regulator->use++;
 
-	if (ret != 0)
+	if (ret != 0 && rdev->supply)
 		regulator_disable(rdev->supply);
 
 	return ret;

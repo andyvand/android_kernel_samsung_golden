@@ -57,12 +57,13 @@ void *return_address(unsigned int level)
 }
 
 #else /* if defined(CONFIG_FRAME_POINTER) && !defined(CONFIG_ARM_UNWIND) */
+#undef return_address
 
-void *return_address(unsigned int level)
+static void *return_address(unsigned int x __attribute__((unused)))
 {
-	return NULL;
+    return NULL;
 }
-
 #endif /* if defined(CONFIG_FRAME_POINTER) && !defined(CONFIG_ARM_UNWIND) / else */
 
 EXPORT_SYMBOL_GPL(return_address);
+

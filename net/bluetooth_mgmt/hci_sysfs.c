@@ -461,6 +461,40 @@ static const struct file_operations blacklist_fops = {
 	.release	= single_release,
 };
 
+#ifdef CONFIG_BT_CG2900
+static int rs_blacklist_show(struct seq_file *f, void *p)
+{
+	struct hci_dev *hdev = f->private;
+	struct list_head *l;
+
+	hci_dev_lock_bh(hdev);
+
+	list_for_each(l, &hdev->rs_blacklist) {
+		struct bdaddr_list *b;
+
+		b = list_entry(l, struct bdaddr_list, list);
+
+		seq_printf(f, "%s\n", batostr(&b->bdaddr));
+	}
+
+	hci_dev_unlock_bh(hdev);
+
+	return 0;
+}
+
+static int rs_blacklist_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, rs_blacklist_show, inode->i_private);
+}
+
+static const struct file_operations rs_blacklist_fops = {
+	.open		= rs_blacklist_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+#endif
+
 static void print_bt_uuid(struct seq_file *f, u8 *uuid)
 {
 	u32 data0, data4;
@@ -570,6 +604,11 @@ int hci_register_sysfs(struct hci_dev *hdev)
 
 	debugfs_create_file("blacklist", 0444, hdev->debugfs,
 						hdev, &blacklist_fops);
+
+#ifdef CONFIG_BT_CG2900
+	debugfs_create_file("rs_blacklist", 0444, hdev->debugfs,
+						hdev, &rs_blacklist_fops);
+#endif
 
 	debugfs_create_file("uuids", 0444, hdev->debugfs, hdev, &uuids_fops);
 

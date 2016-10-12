@@ -112,6 +112,7 @@ struct sec_battery_info {
 	unsigned long charging_start_time;
 	unsigned long charging_passed_time;
 	unsigned long charging_next_time;
+	unsigned long charging_fullcharged_time;
 
 	/* temperature check */
 	int temperature;	/* battery temperature */
@@ -131,6 +132,7 @@ struct sec_battery_info {
 
 	/* charging */
 	unsigned int charging_mode;
+	bool is_recharging;
 	int cable_type;
 	int extended_cable_type;
 	struct wake_lock cable_wake_lock;
@@ -187,7 +189,6 @@ static struct device_attribute sec_battery_attrs[] = {
 	SEC_BATTERY_ATTR(batt_vol_adc_cal),
 	SEC_BATTERY_ATTR(batt_vol_aver),
 	SEC_BATTERY_ATTR(batt_vol_adc_aver),
-	SEC_BATTERY_ATTR(batt_temp),
 	SEC_BATTERY_ATTR(batt_temp_adc),
 	SEC_BATTERY_ATTR(batt_temp_aver),
 	SEC_BATTERY_ATTR(batt_temp_adc_aver),
@@ -232,7 +233,6 @@ enum {
 	BATT_VOL_ADC_CAL,
 	BATT_VOL_AVER,
 	BATT_VOL_ADC_AVER,
-	BATT_TEMP,
 	BATT_TEMP_ADC,
 	BATT_TEMP_AVER,
 	BATT_TEMP_ADC_AVER,

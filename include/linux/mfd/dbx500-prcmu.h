@@ -344,6 +344,10 @@ void prcmu_modem_reset(void);
 
 bool prcmu_is_ac_wake_requested(void);
 
+bool prcmu_is_mcdeclk_on(void);
+
+bool prcmu_is_mmcclk_on(void);
+
 static inline int prcmu_set_display_clocks(void)
 {
 	if (cpu_is_u5500())
@@ -374,6 +378,9 @@ int prcmu_enable_dsipll(void);
 
 int prcmu_config_esram0_deep_sleep(u8 state);
 
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN) || defined(CONFIG_MACH_GAVINI_CHN) || defined(CONFIG_MACH_CODINA_CHN) 
+u32 prcmu_tcdm_read(unsigned int reg);
+#endif
 u32 prcmu_read(unsigned int reg);
 
 void prcmu_write(unsigned int reg, u32 value);
@@ -436,6 +443,9 @@ struct prcmu_early_data {
 	int (*request_clock) (u8 clock, bool enable);
 
 	/* direct access to prcmu reg */
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN) || defined(CONFIG_MACH_GAVINI_CHN) || defined(CONFIG_MACH_CODINA_CHN) 
+	u32 (*tcdm_read) (unsigned int reg);
+#endif
 	u32 (*read) (unsigned int reg);
 	void (*write) (unsigned int reg, u32 value);
 	void (*write_masked) (unsigned int reg, u32 mask, u32 value);

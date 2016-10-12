@@ -20,8 +20,12 @@
 
 #define AB8500_PROC_DEBUG_ENTRY 1
 
-extern struct class * power_supply_class ;
+extern struct class *power_supply_class;
 extern struct class *sec_class;
+
+#if defined(CONFIG_MACH_JANICE_CHN) || defined(CONFIG_MACH_CODINA_CHN) || defined(CONFIG_MACH_GAVINI_CHN) || defined(CONFIG_MACH_CODINA_EURO) || defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_JANICE)
+extern u32 sec_lpm_bootmode;
+#endif
 
 struct charger_extra_sysfs
 {
@@ -83,10 +87,40 @@ static enum power_supply_property ab8500_battery_props[] = {
 	POWER_SUPPLY_PROP_LPM_MODE,	/* LPM mode */
 	POWER_SUPPLY_PROP_REINIT_CAPACITY, /* Re-initialize capacity */
 	POWER_SUPPLY_PROP_SIOP,	/* Adjust charging current */
+	POWER_SUPPLY_PROP_CAPACITY,
+	POWER_SUPPLY_PROP_HEALTH,
+	POWER_SUPPLY_PROP_STATUS,
+	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 };
 
 static struct charger_extra_sysfs charger_extra_sysfs ={0} ;
 
+static inline struct power_supply *get_power_supply_by_name(char *name)
+{
+	if (!name)
+		return (struct power_supply *)NULL;
+	else
+		return power_supply_get_by_name(name);
+}
+
+#define psy_do_property(name, function, property, value) \
+{	\
+	struct power_supply *psy;	\
+	int ret;	\
+	psy = get_power_supply_by_name((name));	\
+	if (!psy) {	\
+		pr_err("%s: Fail to "#function" psy (%s)\n",	\
+			__func__, (name));	\
+		value.intval = 0;	\
+	} else {	\
+		ret = psy->function##_property(psy, (property), &(value)); \
+		if (ret < 0) {	\
+			pr_err("%s: Fail to "#name" "#function" (%d=>%d)\n", \
+				__func__, (property), ret);	\
+			value.intval = 0;	\
+		}	\
+	}	\
+}
 
 static int _power_supply_get_property(struct device *dev, void *data)
 {
@@ -273,7 +307,7 @@ static struct average_attribute average_attributes[] = {
 
 
 static struct callback_attribute callback_attributes[] = {
-	{ __ATTR(batt_temp,0444, show_callback_attribute,NULL),temperature_update ,&average_attributes[3],0 },
+	{ __ATTR(temp,0444, show_callback_attribute,NULL),temperature_update ,&average_attributes[3],0 },
 } ; 
 
 static struct adc_attribute adc_attributes[] = {
@@ -283,11 +317,9 @@ static struct adc_attribute adc_attributes[] = {
 } ; 
 
 struct power_supply_attribute power_supply_attributes[] = { 
-	{ __ATTR(capacity, 0444, show_power_supply_attribute, NULL), 1,
-	  POWER_SUPPLY_TYPE_BATTERY, POWER_SUPPLY_PROP_CAPACITY, NULL, 0},
 	{ __ATTR(batt_soc, 0444, show_power_supply_attribute, NULL), 1,
 	  POWER_SUPPLY_TYPE_BATTERY, POWER_SUPPLY_PROP_CAPACITY, NULL, 0},
-	{ __ATTR(charging_source, 0444, show_power_supply_attribute, NULL), 1,
+	{ __ATTR(batt_charging_source, 0444, show_power_supply_attribute, NULL), 1,
 	  POWER_SUPPLY_TYPE_BATTERY, POWER_SUPPLY_PROP_CHARGING_SOURCE,
 	  NULL, 0},
 	{ __ATTR(batt_vol_adc, 0444, show_power_supply_attribute, NULL), 1,
@@ -502,7 +534,7 @@ static ssize_t store_fg_reset_soc(struct device *dev, struct device_attribute *a
 	if(reset_soc)
 		ab8500_fg_reinit();
 
-	return 0 ;
+	return count ;
 }
 
 static ssize_t show_siop_activated(struct device *dev,
@@ -528,7 +560,7 @@ static ssize_t store_siop_activated(struct device *dev,
 }
 
 static struct device_attribute misc_attributes[] = {
-	__ATTR(batt_test_mode, 0644, show_batt_test_mode, store_batt_test_mode),
+	__ATTR(test_mode, 0644, show_batt_test_mode, store_batt_test_mode),
 	__ATTR(batt_type, 0644, show_battery_type, NULL),
 	__ATTR(batt_temp_adc_cal, 0444, show_empty_reading, NULL),
 	__ATTR(batt_lp_charging, 0664, show_batt_lp_charging,
@@ -561,6 +593,8 @@ static int battery_get_property(struct power_supply *psy,
 				enum power_supply_property psp,
 				union power_supply_propval *val)
 {
+	union power_supply_propval value;
+	
 	switch (psp) {
 
 	case POWER_SUPPLY_PROP_BATT_CAL:	/* Calibarating vbat */
@@ -568,7 +602,11 @@ static int battery_get_property(struct power_supply *psy,
 		break;
 	
 	case POWER_SUPPLY_PROP_LPM_MODE:    /* LPM mode */
+#if defined(CONFIG_MACH_JANICE_CHN) || defined(CONFIG_MACH_CODINA_CHN) || defined(CONFIG_MACH_GAVINI_CHN) || defined(CONFIG_MACH_CODINA_EURO) || defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_JANICE)
+		val->intval = sec_lpm_bootmode;
+#else
 		val->intval = charger_extra_sysfs.batt_lp_charging; /* 0 or 1 */
+#endif
 		break;
 
 	case POWER_SUPPLY_PROP_REINIT_CAPACITY:    /* Re-initialize capacity */
@@ -578,6 +616,30 @@ static int battery_get_property(struct power_supply *psy,
 
 	case POWER_SUPPLY_PROP_SIOP:     /* SIOP active/deactive */
 		val->intval = charger_extra_sysfs.siop_activated;  /* 0 or 1 */
+		break;
+
+	case POWER_SUPPLY_PROP_CAPACITY:
+		psy_do_property("ab8500_fg", get,
+				POWER_SUPPLY_PROP_CAPACITY, value);
+		val->intval = value.intval;
+		break;
+
+	case POWER_SUPPLY_PROP_HEALTH :
+		psy_do_property("ab8500_chargalg", get,
+				POWER_SUPPLY_PROP_HEALTH, value);
+		val->intval = value.intval;
+		break;
+
+	case POWER_SUPPLY_PROP_STATUS :
+		psy_do_property("ab8500_chargalg", get,
+				POWER_SUPPLY_PROP_STATUS, value);
+		val->intval = value.intval;
+		break;
+
+	case POWER_SUPPLY_PROP_VOLTAGE_NOW :
+		psy_do_property("ab8500_fg", get,
+				POWER_SUPPLY_PROP_VOLTAGE_MIN, value);
+		val->intval = value.intval;
 		break;
 
 	default :

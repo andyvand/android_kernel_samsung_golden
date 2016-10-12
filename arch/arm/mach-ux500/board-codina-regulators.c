@@ -124,7 +124,7 @@ static struct ab8500_regulator_reg_init
 	 * Vintcore12LP             = inactive (HP)
 	 * VTVoutLP                 = inactive (HP)
 	 */
-	INIT_REGULATOR_REGISTER(AB8500_REGUMISC1,              0xfe, 0x10),
+	INIT_REGULATOR_REGISTER(AB8500_REGUMISC1,              0xfe, 0x14),
 	/*
 	 * VaudioEna                = disabled
 	 * VdmicEna                 = disabled
@@ -137,6 +137,13 @@ static struct ab8500_regulator_reg_init
 	 * Vamic2_dzout             = high-Z when Vamic2 is disabled
 	 */
 	INIT_REGULATOR_REGISTER(AB8500_REGUCTRL1VAMIC,         0x03, 0x00),
+	/*
+	 * VsmpsARegu
+	 * VsmpsASelCtrl
+	 * VsmpsAAutoMode
+	 * VsmpsAPWMMode
+	 */
+	INIT_REGULATOR_REGISTER(AB8500_VSMPS1REGU,             0x03, 0x01),
 	/*
 	 * VPll                     = Hw controlled (NOTE! PRCMU bits)
 	 * VanaRegu                 = force off
@@ -375,6 +382,7 @@ struct regulator_init_data codina_ab8500_regulators[AB8500_NUM_REGULATORS] = {
 			.min_uV = 1250000,
 			.max_uV = 1350000,
 			.input_uV = 1800000,
+			.always_on = 1,
 			.valid_ops_mask = REGULATOR_CHANGE_VOLTAGE |
 					  REGULATOR_CHANGE_STATUS |
 					  REGULATOR_CHANGE_MODE |
@@ -597,7 +605,11 @@ static struct ab8500_regulator_reg_init	codina_ab8505_reg_init[] = {
 	 * VsmpsAAutoMode
 	 * VsmpsAPWMMode
 	 */
+#if 0
 	INIT_REGULATOR_REGISTER(AB8505_VSMPSAREGU,             0x0f, 0x06),
+#else
+	INIT_REGULATOR_REGISTER(AB8505_VSMPSAREGU,             0x0f, 0x05),
+#endif
 	/*
 	 * VsmpsBRegu
 	 * VsmpsBSelCtrl
@@ -727,7 +739,277 @@ static struct ab8500_regulator_reg_init	codina_ab8505_reg_init[] = {
 	INIT_REGULATOR_REGISTER(AB8505_CTRLVAUX6,              0x9f, 0x10),
 };
 
-static struct regulator_consumer_supply ab8505_vaux1_consumers[] = {
+/* ab8505 regulator register initialization for rev 0.4 */
+static struct ab8500_regulator_reg_init	codina_ab8505_r0_4_reg_init[] = {
+	/*
+	 * VarmRequestCtrl
+	 * VsmpsCRequestCtrl
+	 * VsmpsARequestCtrl
+	 * VsmpsBRequestCtrl
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUREQUESTCTRL1,       0x00, 0x00),
+	/*
+	 * VsafeRequestCtrl
+	 * VpllRequestCtrl
+	 * VanaRequestCtrl          = HP/LP depending on VxRequest
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUREQUESTCTRL2,       0x30, 0x00),
+	/*
+	 * Vaux1RequestCtrl         = HP/LP depending on VxRequest
+	 * Vaux2RequestCtrl         = HP/LP depending on VxRequest
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUREQUESTCTRL3,       0xf0, 0x00),
+	/*
+	 * Vaux3RequestCtrl         = HP/LP depending on VxRequest
+	 * SwHPReq                  = Control through SWValid disabled
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUREQUESTCTRL4,       0x07, 0x00),
+	/*
+	 * VsmpsASysClkReq1HPValid
+	 * VsmpsBSysClkReq1HPValid
+	 * VsafeSysClkReq1HPValid
+	 * VanaSysClkReq1HPValid    = disabled
+	 * VpllSysClkReq1HPValid
+	 * Vaux1SysClkReq1HPValid   = disabled
+	 * Vaux2SysClkReq1HPValid   = disabled
+	 * Vaux3SysClkReq1HPValid   = disabled
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUSYSCLKREQ1HPVALID1, 0xe8, 0x00),
+	/*
+	 * VsmpsCSysClkReq1HPValid
+	 * VarmSysClkReq1HPValid
+	 * VbbSysClkReq1HPValid
+	 * VsmpsMSysClkReq1HPValid
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUSYSCLKREQ1HPVALID2, 0x00, 0x00),
+	/*
+	 * VsmpsAHwHPReq1Valid
+	 * VsmpsBHwHPReq1Valid
+	 * VsafeHwHPReq1Valid
+	 * VanaHwHPReq1Valid        = disabled
+	 * VpllHwHPReq1Valid
+	 * Vaux1HwHPreq1Valid       = disabled
+	 * Vaux2HwHPReq1Valid       = disabled
+	 * Vaux3HwHPReqValid        = disabled
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUHWHPREQ1VALID1,     0xe8, 0x00),
+	/*
+	 * VsmpsMHwHPReq1Valid
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUHWHPREQ1VALID2,     0x00, 0x00),
+	/*
+	 * VsmpsAHwHPReq2Valid
+	 * VsmpsBHwHPReq2Valid
+	 * VsafeHwHPReq2Valid
+	 * VanaHwHPReq2Valid        = disabled
+	 * VpllHwHPReq2Valid
+	 * Vaux1HwHPReq2Valid       = disabled
+	 * Vaux2HwHPReq2Valid       = disabled
+	 * Vaux3HwHPReq2Valid       = disabled
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUHWHPREQ2VALID1,     0xe8, 0x00),
+	/*
+	 * VsmpsMHwHPReq2Valid
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUHWHPREQ2VALID2,     0x00, 0x00),
+	/**
+	 * VsmpsCSwHPReqValid
+	 * VarmSwHPReqValid
+	 * VsmpsASwHPReqValid
+	 * VsmpsBSwHPReqValid
+	 * VsafeSwHPReqValid
+	 * VanaSwHPReqValid
+	 * VanaSwHPReqValid         = disabled
+	 * VpllSwHPReqValid
+	 * Vaux1SwHPReqValid        = disabled
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUSWHPREQVALID1,      0xa0, 0x00),
+	/*
+	 * Vaux2SwHPReqValid        = disabled
+	 * Vaux3SwHPReqValid        = disabled
+	 * VsmpsMSwHPReqValid
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUSWHPREQVALID2,      0x03, 0x00),
+	/*
+	 * SysClkReq2Valid1         = SysClkReq2 controlled
+	 * SysClkReq3Valid1         = disabled
+	 * SysClkReq4Valid1         = SysClkReq4 controlled
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUSYSCLKREQVALID1,    0x0e, 0x00),
+	/*
+	 * SysClkReq2Valid2         = disabled
+	 * SysClkReq3Valid2         = disabled
+	 * SysClkReq4Valid2         = disabled
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUSYSCLKREQVALID2,    0x0e, 0x00),
+	/*
+	 * Vaux4SwHPReqValid
+	 * Vaux4HwHPReq2Valid
+	 * Vaux4HwHPReq1Valid
+	 * Vaux4SysClkReq1HPValid
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUVAUX4REQVALID,    0x00, 0x00),
+	/*
+	 * VadcEna                  = disabled
+	 * VintCore12Ena            = disabled
+	 * VintCore12Sel            = 1.25 V
+	 * VintCore12LP             = inactive (HP)
+	 * VadcLP                   = inactive (HP)
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUMISC1,              0xfe, 0x10),
+	/*
+	 * VaudioEna                = disabled
+	 * Vaux8Ena                 = disabled
+	 * Vamic1Ena                = disabled
+	 * Vamic2Ena                = disabled
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VAUDIOSUPPLY,           0x1e, 0x00),
+	/*
+	 * Vamic1_dzout             = high-Z when Vamic1 is disabled
+	 * Vamic2_dzout             = high-Z when Vamic2 is disabled
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUCTRL1VAMIC,         0x03, 0x00),
+	/*
+	 * VsmpsARegu
+	 * VsmpsASelCtrl
+	 * VsmpsAAutoMode
+	 * VsmpsAPWMMode
+	 */
+#if 0
+	INIT_REGULATOR_REGISTER(AB8505_VSMPSAREGU,             0x0f, 0x06),
+#else
+	INIT_REGULATOR_REGISTER(AB8505_VSMPSAREGU,             0x0f, 0x05),
+#endif
+	/*
+	 * VsmpsBRegu
+	 * VsmpsBSelCtrl
+	 * VsmpsBAutoMode
+	 * VsmpsBPWMMode
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VSMPSBREGU,             0x0f, 0x06),
+	/*
+	 * VsafeRegu
+	 * VsafeSelCtrl
+	 * VsafeAutoMode
+	 * VsafePWMMode
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VSAFEREGU,    0x00, 0x00),
+	/*
+	 * VPll                     = Hw controlled (NOTE! PRCMU bits)
+	 * VanaRegu                 = force off
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VPLLVANAREGU,           0x0f, 0x02),
+	/*
+	 * No external regulators connected to AB8505
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_EXTSUPPLYREGU,          0xff, 0x00),
+	/*
+	 * Vaux1Regu                = force off
+	 * Vaux2Regu                = force off
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VAUX12REGU,             0x0f, 0x00),
+	/*
+	 * Vaux3Regu                = force off
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VRF1VAUX3REGU,          0x03, 0x00),
+	/*
+	 * VsmpsASel1
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VSMPSASEL1,    0x00, 0x00),
+	/*
+	 * VsmpsASel2
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VSMPSASEL2,    0x00, 0x00),
+	/*
+	 * VsmpsASel3
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VSMPSASEL3,    0x00, 0x00),
+	/*
+	 * VsmpsBSel1
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VSMPSBSEL1,    0x00, 0x00),
+	/*
+	 * VsmpsBSel2
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VSMPSBSEL2,    0x00, 0x00),
+	/*
+	 * VsmpsBSel3
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VSMPSBSEL3,    0x00, 0x00),
+	/*
+	 * VsafeSel1
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VSAFESEL1,    0x00, 0x00),
+	/*
+	 * VsafeSel2
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VSAFESEL2,    0x00, 0x00),
+	/*
+	 * VsafeSel3
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VSAFESEL3,    0x00, 0x00),
+	/*
+	 * Vaux1Sel                 = 3.0 V
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VAUX1SEL,               0x0f, 0x0e),
+	/*
+	 * Vaux2Sel                 = 3.3 V
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VAUX2SEL,               0x0f, 0x0f),
+	/*
+	 * Vaux3Sel                 = 2.91 V
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VRF1VAUX3SEL,           0x07, 0x07),
+	/*
+	 * Vaux4RequestCtrl         = HP/LP depending on VxRequest
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VAUX4REQCTRL,           0x03, 0x00),
+	/*
+	 * Vaux4Regu                = force off
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VAUX4REGU,              0x03, 0x00),
+	/*
+	 * Vaux4Sel                 = 3.3 V
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_VAUX4SEL,               0x0f, 0x0f),
+	/*
+	 * Vaux1Disch               = short discharge time
+	 * Vaux2Disch               = short discharge time
+	 * Vaux3Disch               = short discharge time
+	 * Vintcore12Disch          = short discharge time
+	 * VTVoutDisch              = short discharge time
+	 * VaudioDisch              = short discharge time
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUCTRLDISCH,          0xec, 0x00),
+	/*
+	 * VanaDisch                = short discharge time
+	 * Vaux8PullDownEna         = pulldown disabled when Vaux8 is disabled
+	 * Vaux8Disch               = short discharge time
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUCTRLDISCH2,         0x16, 0x00),
+	/*
+	 * Vaux4Disch               = short discharge time
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_REGUCTRLDISCH3,         0x01, 0x00),
+	/*
+	 * Vaux5Sel - 1.8V
+	 * Vaux5LP
+	 * Vaux5Ena - disabled
+	 * Vaux5Disch
+	 * Vaux5DisSfst
+	 * Vaux5DisPulld
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_CTRLVAUX5,              0xff, 0x00),
+	/*
+	 * Vaux6Sel - 1.8V
+	 * Vaux6LP
+	 * Vaux6Ena - enabled
+	 * Vaux6DisPulld
+	 */
+	INIT_REGULATOR_REGISTER(AB8505_CTRLVAUX6,              0x9f, 0x10),
+};
+
+static struct regulator_consumer_supply ab8505_sensor_3v_consumers[] = {
 	/* Proximity Sensor GP2A */
 	REGULATOR_SUPPLY("v-prox-vcc", GP2A_I2C_DEVICE_NAME),
     /* Proximity Sensor TMD2672 */
@@ -756,7 +1038,7 @@ static struct regulator_consumer_supply ab8505_vaux3_consumers[] = {
 	REGULATOR_SUPPLY("vmmc", "sdi0"),
 };
 
-static struct regulator_consumer_supply ab8505_vaux4_consumers[] = {
+static struct regulator_consumer_supply ab8505_sensor_1v8_consumers[] = {
 	/* Proximity Sensor GP2A or TMD2672 */
 	REGULATOR_SUPPLY("v-prox-vio", GP2A_I2C_DEVICE_NAME),
 	REGULATOR_SUPPLY("v-prox_vio", TMD2672_I2C_DEVICE_NAME),
@@ -770,7 +1052,12 @@ static struct regulator_consumer_supply ab8505_vaux4_consumers[] = {
 	REGULATOR_SUPPLY("vio_acc", "6-0019"),
 	REGULATOR_SUPPLY("vio_bma", "6-0018"),
 	/* Camera PMIC */
-	REGULATOR_SUPPLY("v_sensor_1v8", "mmio_camera"),
+	REGULATOR_SUPPLY("v_sensor_1v8", "mmio_camera"), // Codina TMO Camera PMIC
+};
+
+static struct regulator_consumer_supply ab8505_vdd_key_led_3v3_consumers[] = {
+	/* key-led 3.3v */
+	REGULATOR_SUPPLY("v-keyled-3.3", "leds-regulator"),
 };
 
 static struct regulator_consumer_supply ab8505_vaux5_consumers[] = {
@@ -778,17 +1065,24 @@ static struct regulator_consumer_supply ab8505_vaux5_consumers[] = {
 };
 
 static struct regulator_consumer_supply ab8505_vaux6_consumers[] = {
+
+	REGULATOR_SUPPLY("v_lcd_1v8", NULL),
 };
 
 static struct regulator_consumer_supply ab8505_vaux8_consumers[] = {
 	/* AB8505 audio codec device */
 	REGULATOR_SUPPLY("v-aux8", NULL),
-    /* Proximity Sensor TMD2672 */
-    REGULATOR_SUPPLY("v-prox_vio",  "0-0039"),
-    /* Compass sensor HSCDTD008A */
-    REGULATOR_SUPPLY("vio_hscdtd", "8-000c"),
-    /* BMA254 accelerometer device */
-    REGULATOR_SUPPLY("vio-acc", "6-0018"),
+};
+
+static struct regulator_consumer_supply ab8505_sensor_1v8_r0_4_consumers[] = {
+	/* Proximity Sensor TMD2672 */
+	REGULATOR_SUPPLY("v-prox_vio",	TMD2672_I2C_DEVICE_NAME),
+	/* Compass sensor HSCDTD008A */
+	REGULATOR_SUPPLY("vio_hscdtd", "8-000c"),
+	/* BMA254 accelerometer device */
+	REGULATOR_SUPPLY("vio-acc", "6-0018"),
+	/* Camera PMIC */
+	REGULATOR_SUPPLY("v_sensor_1v8", "mmio_camera"), // For Codina TMO Rev 0.4 Board Camera PMIC
 };
 
 static struct regulator_consumer_supply ab8505_vadc_consumers[] = {
@@ -857,8 +1151,8 @@ struct regulator_init_data codina_ab8505_regulators[AB8505_NUM_REGULATORS] = {
 			.valid_ops_mask = REGULATOR_CHANGE_VOLTAGE |
 					  REGULATOR_CHANGE_STATUS,
 		},
-		.num_consumer_supplies = ARRAY_SIZE(ab8505_vaux1_consumers),
-		.consumer_supplies = ab8505_vaux1_consumers,
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_sensor_3v_consumers),
+		.consumer_supplies = ab8505_sensor_3v_consumers,
 	},
 	/* supplies to the TSP 3V3 */
 	[AB8505_LDO_AUX2] = {
@@ -899,8 +1193,8 @@ struct regulator_init_data codina_ab8505_regulators[AB8505_NUM_REGULATORS] = {
 			.valid_modes_mask = REGULATOR_MODE_NORMAL |
 					REGULATOR_MODE_IDLE,
 		},
-		.num_consumer_supplies = ARRAY_SIZE(ab8505_vaux4_consumers),
-		.consumer_supplies = ab8505_vaux4_consumers,
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_sensor_1v8_consumers),
+		.consumer_supplies = ab8505_sensor_1v8_consumers,
 	},
 	/* supply for VAUX5, supplies to TSP 1V8 */
 	[AB8505_LDO_AUX5] = {
@@ -1019,11 +1313,189 @@ struct regulator_init_data codina_ab8505_regulators[AB8505_NUM_REGULATORS] = {
 	},
 };
 
-struct ab8500_regulator_platform_data codina_ab8505_regulator_plat_data = {
-	.reg_init               = codina_ab8505_reg_init,
-	.num_reg_init           = ARRAY_SIZE(codina_ab8505_reg_init),
-	.regulator              = codina_ab8505_regulators,
-	.num_regulator          = ARRAY_SIZE(codina_ab8505_regulators),
+/*
+ * Regulators for Rev0.4
+ */
+struct regulator_init_data codina_ab8505_r0_4_regulators[AB8505_NUM_REGULATORS] = {
+	/* supplies to the Sensors 3V */
+	[AB8505_LDO_AUX1] = {
+		.constraints = {
+			.name = "V-SENSORS-VDD",
+			.min_uV = 1100000,
+			.max_uV = 3300000,
+			.valid_ops_mask = REGULATOR_CHANGE_VOLTAGE |
+					  REGULATOR_CHANGE_STATUS,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_sensor_3v_consumers),
+		.consumer_supplies = ab8505_sensor_3v_consumers,
+	},
+	/* supplies to the TSP 3V3 */
+	[AB8505_LDO_AUX2] = {
+		.constraints = {
+			.name = "V-AUX2",
+			.min_uV = 1100000,
+			.max_uV = 3300000,
+			.valid_ops_mask = REGULATOR_CHANGE_VOLTAGE |
+					REGULATOR_CHANGE_STATUS,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_vaux2_consumers),
+		.consumer_supplies = ab8505_vaux2_consumers,
+	},
+	/* supply for VAUX3, supplies to SDcard slots */
+	[AB8505_LDO_AUX3] = {
+		.constraints = {
+			.name = "V-MMC-SD",
+			.min_uV = 1100000,
+			.max_uV = 3300000,
+			.valid_ops_mask = REGULATOR_CHANGE_VOLTAGE |
+					  REGULATOR_CHANGE_STATUS |
+					  REGULATOR_CHANGE_MODE,
+			.valid_modes_mask = REGULATOR_MODE_NORMAL |
+					    REGULATOR_MODE_IDLE,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_vaux3_consumers),
+		.consumer_supplies = ab8505_vaux3_consumers,
+	},
+	/* supply for VAUX4, supplies to led key 3.3v */
+	[AB8505_LDO_AUX4] = {
+		.constraints = {
+			.name = "V-AUX4",
+			.min_uV = 3300000,
+			.max_uV = 3300000,
+			.apply_uV = 1,
+			.valid_ops_mask = REGULATOR_CHANGE_STATUS
+		},
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_vdd_key_led_3v3_consumers),
+		.consumer_supplies = ab8505_vdd_key_led_3v3_consumers,
+	},
+	/* supply for VAUX5, supplies to TSP 1V8 */
+	[AB8505_LDO_AUX5] = {
+ 		.constraints = {
+			.name = "V-AUX5",
+			.min_uV = 1050000,
+			.max_uV = 2790000,
+			.valid_ops_mask = REGULATOR_CHANGE_VOLTAGE |
+					  REGULATOR_CHANGE_STATUS,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_vaux5_consumers),
+		.consumer_supplies = ab8505_vaux5_consumers,
+	},
+	/* supply for VAUX6, supplies to LCD 1V8 */
+	[AB8505_LDO_AUX6] = {
+		.constraints = {
+			.name = "V-AUX6",
+			.min_uV = 1050000,
+			.max_uV = 2790000,
+			.valid_ops_mask = REGULATOR_CHANGE_VOLTAGE |
+					  REGULATOR_CHANGE_STATUS,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_vaux6_consumers),
+		.consumer_supplies = ab8505_vaux6_consumers,
+	},
+	/* supply for gpadc, ADC LDO */
+	[AB8505_LDO_ADC] = {
+		.constraints = {
+			.name = "V-ADC",
+			.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_vadc_consumers),
+		.consumer_supplies = ab8505_vadc_consumers,
+	},
+	/* supply for ab8500-vaudio, VAUDIO LDO */
+	[AB8505_LDO_AUDIO] = {
+		.constraints = {
+			.name = "V-AUD",
+			.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_vaudio_consumers),
+		.consumer_supplies = ab8505_vaudio_consumers,
+	},
+	/* supply for v-anamic1 VAMic1-LDO */
+	[AB8505_LDO_ANAMIC1] = {
+		.constraints = {
+			.name = "V-AMIC1",
+			.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_vamic1_consumers),
+		.consumer_supplies = ab8505_vamic1_consumers,
+	},
+	/* supply for v-amic2, VAMIC2 LDO, reuse constants for AMIC1 */
+	[AB8505_LDO_ANAMIC2] = {
+		.constraints = {
+			.name = "V-AMIC2",
+			.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_vamic2_consumers),
+		.consumer_supplies = ab8505_vamic2_consumers,
+	},
+	/* supply for v-aux8, sensors 1.8v */
+	[AB8505_LDO_AUX8] = {
+		.constraints = {
+			.name = "V-SENSORS-VIO",
+			.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_sensor_1v8_r0_4_consumers),
+		.consumer_supplies = ab8505_sensor_1v8_r0_4_consumers,
+	},
+	/* supply for v-intcore12, VINTCORE12 LDO */
+	[AB8505_LDO_INTCORE] = {
+		.constraints = {
+			.name = "V-INTCORE",
+			.min_uV = 1250000,
+			.max_uV = 1350000,
+			.input_uV = 1800000,
+			.valid_ops_mask = REGULATOR_CHANGE_VOLTAGE |
+					  REGULATOR_CHANGE_STATUS |
+					  REGULATOR_CHANGE_MODE |
+					  REGULATOR_CHANGE_DRMS,
+			.valid_modes_mask = REGULATOR_MODE_NORMAL |
+					    REGULATOR_MODE_IDLE,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_vintcore_consumers),
+		.consumer_supplies = ab8505_vintcore_consumers,
+	},
+	/* supply for U8500 CSI-DSI, VANA LDO */
+	[AB8505_LDO_ANA] = {
+		.constraints = {
+			.name = "V-CSI-DSI",
+			.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(ab8505_vana_consumers),
+		.consumer_supplies = ab8505_vana_consumers,
+	},
+	/* sysclkreq 2 pin */
+	[AB8505_SYSCLKREQ_2] = {
+		.constraints = {
+			.name = "V-SYSCLKREQ-2",
+			.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+		},
+		.num_consumer_supplies =
+			ARRAY_SIZE(ab8505_sysclkreq_2_consumers),
+		.consumer_supplies = ab8505_sysclkreq_2_consumers,
+	},
+	/* sysclkreq 4 pin */
+	[AB8505_SYSCLKREQ_4] = {
+		.constraints = {
+			.name = "V-SYSCLKREQ-4",
+			.valid_ops_mask = REGULATOR_CHANGE_STATUS,
+		},
+		.num_consumer_supplies =
+			ARRAY_SIZE(ab8505_sysclkreq_4_consumers),
+		.consumer_supplies = ab8505_sysclkreq_4_consumers,
+	},
 };
 
+struct ab8500_regulator_platform_data codina_ab8505_regulator_plat_data = {
+	.reg_init			= codina_ab8505_reg_init,
+	.num_reg_init		= ARRAY_SIZE(codina_ab8505_reg_init),
+	.regulator			= codina_ab8505_regulators,
+	.num_regulator		= ARRAY_SIZE(codina_ab8505_regulators),
+};
+
+struct ab8500_regulator_platform_data codina_ab8505_r0_4_regulator_plat_data = {
+	.reg_init			= codina_ab8505_r0_4_reg_init,
+	.num_reg_init		= ARRAY_SIZE(codina_ab8505_r0_4_reg_init),
+	.regulator			= codina_ab8505_r0_4_regulators,
+	.num_regulator		= ARRAY_SIZE(codina_ab8505_r0_4_regulators),
+};
 

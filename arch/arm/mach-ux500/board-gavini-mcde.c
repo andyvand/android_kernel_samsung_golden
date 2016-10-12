@@ -11,8 +11,12 @@
 #include <linux/kernel.h>
 #include <linux/gpio.h>
 #include <linux/dispdev.h>
+#include <linux/compdev.h>
+#include <linux/clk.h>
+#include <mach/devices.h>
 #include <linux/delay.h>
 #include <mach/board-sec-u8500.h>
+#include <linux/mfd/dbx500-prcmu.h>
 #include <video/mcde_display.h>
 #include <video/mcde_display_ssg_dpi.h>
 #include <video/mcde_display-dpi.h>
@@ -23,11 +27,13 @@
 #include "pins-db8500.h"
 #include "pins.h"
 #include <mach/db8500-regs.h>
+#include <linux/ktime.h>
 
-#define DSI_UNIT_INTERVAL_0	0x9
-#define DSI_UNIT_INTERVAL_1	0x9
-#define DSI_UNIT_INTERVAL_2	0x6
+	 
 
+/* Taken from the programmed value of the LCD clock in PRCMU */
+#define PRCMU_DPI_CLK_FREQ	80000000 //50000000
+	 
 #ifdef CONFIG_FB_MCDE
 
 enum {
@@ -59,18 +65,9 @@ static int __init startup_graphics_setup(char *str)
 
 	return 1;
 
-}
+}	 
 __setup("startup_graphics=", startup_graphics_setup);
-
-unsigned int lcd_type;
-static int __init lcdtype_setup(char *str)
-{
-	get_option(&str, &lcd_type);
-
-	return 1;
-}
-__setup("lcdtype=", lcdtype_setup);
-
+	 
 static struct mcde_port port0 = {
 	.type = MCDE_PORTTYPE_DPI,
 	.pixel_format = MCDE_PORTPIXFMT_DPI_24BPP,
@@ -82,10 +79,14 @@ static struct mcde_port port0 = {
 		.dpi = {
 			.tv_mode = false,
 			.clock_div = 3,
+			
 			.polarity = DPI_ACT_LOW_VSYNC | DPI_ACT_LOW_HSYNC | DPI_ACT_ON_FALLING_EDGE,
+					
+			.lcd_freq = PRCMU_DPI_CLK_FREQ
 		},
 	},
 };
+
 #ifndef CONFIG_HAS_EARLYSUSPEND
 static int dpi_display_platform_enable(struct mcde_display_device *ddev)
 {
@@ -96,7 +97,7 @@ static int dpi_display_platform_enable(struct mcde_display_device *ddev)
 		dev_warn(&ddev->dev, "Failure during %s\n", __func__);
 	return res;
 }
-
+	 
 static int dpi_display_platform_disable(struct mcde_display_device *ddev)
 {
 	int res = 0;
@@ -107,6 +108,7 @@ static int dpi_display_platform_disable(struct mcde_display_device *ddev)
 	return res;
 }
 #endif
+
 static int pri_display_power_on(struct ssg_dpi_display_platform_data *pd, int enable);
 static int pri_display_reset(struct ssg_dpi_display_platform_data *pd);
 static int lcd_gpio_cfg_earlysuspend(void);
@@ -114,7 +116,6 @@ static int lcd_gpio_cfg_lateresume(void);
 
 
 /* Taken from the programmed value of the LCD clock in PRCMU */
-#define PRCMU_DPI_CLK_FREQ	80000000
 #define FRAME_PERIOD_MS 17	// rounded up to the nearest ms
 
 struct ssg_dpi_display_platform_data gavini_dpi_pri_display_info = {
@@ -123,8 +124,7 @@ struct ssg_dpi_display_platform_data gavini_dpi_pri_display_info = {
 	.reset_gpio 		= LCD_RESX_GAVINI_R0_0,
 	.pwr_gpio		= LCD_PWR_EN_GAVINI_R0_0,
 	.bl_en_gpio		= LCD_BL_CTRL_GAVINI_R0_0,
-
-	.power_on_delay		= 50,
+.power_on_delay		= 50,
 	.reset_delay 		= 10,
 	.sleep_out_delay	= 20,
 
@@ -163,13 +163,13 @@ struct ssg_dpi_display_platform_data gavini_dpi_pri_display_info_r0_3 = {
 	.bl_en_gpio		= LCD_BL_CTRL_GAVINI_R0_3,
 
 	.power_on_delay		= 50,
-	.reset_delay		= 10,
+	.reset_delay 		= 10,
 	.sleep_out_delay	= 20,
 
 	.display_off_delay	= 25,
 	.sleep_in_delay		= 120,
 
-	.video_mode.xres	= 480,
+	.video_mode.xres	= 480, 
 	.video_mode.yres	= 800,
 	.video_mode.hsw		= 4,	/* 2, */
 	.video_mode.hbp		= 40,	/* 2, */
@@ -177,7 +177,7 @@ struct ssg_dpi_display_platform_data gavini_dpi_pri_display_info_r0_3 = {
 	.video_mode.vsw		= 1,
 	.video_mode.vbp		= 7,	/* 4 */
 	.video_mode.vfp		= 6,
-	.video_mode.interlaced	= false,
+	.video_mode.interlaced 	= false,
 
 	/*
 	 * The pixclock setting is not used within MCDE. The clock is
@@ -186,8 +186,8 @@ struct ssg_dpi_display_platform_data gavini_dpi_pri_display_info_r0_3 = {
 	 */
 	.video_mode.pixclock = (int)(1e+12 * (1.0 / PRCMU_DPI_CLK_FREQ)),
 
-	.reset		= pri_display_reset,
-	.power_on	= pri_display_power_on,
+	.reset 		= pri_display_reset,
+	.power_on 	= pri_display_power_on,
 
 	.gpio_cfg_earlysuspend = lcd_gpio_cfg_earlysuspend,
 	.gpio_cfg_lateresume = lcd_gpio_cfg_lateresume,
@@ -241,30 +241,17 @@ static int lcd_gpio_cfg_earlysuspend(void)
 {
 	int ret = 0;
 	printk("%s\n",__func__);
-	
+
 	ret=nmk_config_pins(gavini_lcd_spi_pins_disable,
 		ARRAY_SIZE(gavini_lcd_spi_pins_disable));
 
 	return ret;
 }
-void  lcd_drive_lowEMI(void)
-{
-	u32 bankaddr;
-
-	/* Bank2 lcd gpio 70 ~ 85*/
-	bankaddr = IO_ADDRESS(U8500_GPIOBANK2_BASE);
-	writel(0x3fffc0 , bankaddr + 0x28);	/*lowEMI*/
-
-	/*Bank5 gpio 161 ~ 168*/
-	bankaddr = IO_ADDRESS(U8500_GPIOBANK5_BASE);
-	writel(0x1fe , bankaddr + 0x28);	/*lowEMI*/
-}
 
 static int lcd_gpio_cfg_lateresume(void)
 {
 	int ret = 0;
-	printk("%s\n",__func__);
-	
+ printk("%s\n",__func__);
 	ret=nmk_config_pins(gavini_lcd_spi_pins_enable,
 		ARRAY_SIZE(gavini_lcd_spi_pins_enable));
 
@@ -277,11 +264,11 @@ static struct mcde_display_device generic_display0 = {
 	.port = &port0,
 	.chnl_id = MCDE_CHNL_A,
 	.fifo = MCDE_FIFO_A,
-	.default_pixel_format = MCDE_OVLYPIXFMT_RGBA8888,/*RGBA888*/
+	.default_pixel_format = MCDE_OVLYPIXFMT_RGBA8888,//support RGBA888 for janice
+	.x_res_padding = 0,
+	.y_res_padding = 0,
 	.native_x_res = 480,
 	.native_y_res = 800,
-	.rotbuf1 = U8500_ESRAM_BASE + 0x20000 * 4 + 0x2000,
-	.rotbuf2 = U8500_ESRAM_BASE + 0x20000 * 4 + 0x10000 + 0x1000,
 	/* .synchronized_update: Don't care: port is set to update_auto_trig */
 	.dev = {
 		.platform_data = &gavini_dpi_pri_display_info,
@@ -290,8 +277,7 @@ static struct mcde_display_device generic_display0 = {
 	.platform_enable = dpi_display_platform_enable,
 	.platform_disable = dpi_display_platform_disable,
 	#endif
-};	 
-
+};	
 static struct mcde_display_device generic_display0_r0_3 = {
 	.name = LCD_DRIVER_NAME_GAVINI,
 	.id = PRIMARY_DISPLAY_ID,
@@ -312,17 +298,19 @@ static struct mcde_display_device generic_display0_r0_3 = {
 	.platform_disable = dpi_display_platform_disable,
 	#endif
 };
-
+ 
+	 	 
 
 static int display_postregistered_callback(struct notifier_block *nb,
 	unsigned long event, void *dev)
 {
 	struct mcde_display_device *ddev = dev;
 	u16 width, height;
-	u16 virtual_width, virtual_height;
-	u32 rotate = FB_ROTATE_UR;
+	u16 virtual_height;
 	struct fb_info *fbi;
+#if defined(CONFIG_DISPDEV) || defined(CONFIG_COMPDEV)
 	struct mcde_fb *mfb;		
+#endif
 	 
 	if (event != MCDE_DSS_EVENT_DISPLAY_REGISTERED)
 		return 0;
@@ -331,26 +319,18 @@ static int display_postregistered_callback(struct notifier_block *nb,
 		return 0;
 	 
 	mcde_dss_get_native_resolution(ddev, &width, &height);
-	 
-	virtual_width = width;
 	virtual_height = height * 3;
 
-
 	/* Create frame buffer */
-	fbi = mcde_fb_create(ddev,
-				width, height,
-				virtual_width, virtual_height,
-				ddev->default_pixel_format,
-				rotate);
+	fbi = mcde_fb_create(ddev, width, height, width, virtual_height,
+				ddev->default_pixel_format, FB_ROTATE_UR);
 
 	if (IS_ERR(fbi)) {
 		dev_warn(&ddev->dev,
-			"Failed to create fb for display %s\n",
-					ddev->name);
+			"Failed to create fb for display %s\n", ddev->name);
 		goto display_postregistered_callback_err;
 	} else {
-		dev_info(&ddev->dev, "Framebuffer created (%s)\n",
-					ddev->name);
+		dev_info(&ddev->dev, "Framebuffer created (%s)\n", ddev->name);
 
 		if (ddev->id == PRIMARY_DISPLAY_ID)
 			primary_fbi = fbi;
@@ -371,6 +351,20 @@ static int display_postregistered_callback(struct notifier_block *nb,
 	}
 #endif
 
+#ifdef CONFIG_COMPDEV
+	mfb = to_mcde_fb(fbi);
+	/* Create a compdev overlay for this display */
+	if (compdev_create(ddev, mfb->ovlys[0], true,	NULL) < 0) {
+		dev_warn(&ddev->dev,
+			"Failed to create compdev for display %s\n",
+					ddev->name);
+		goto display_postregistered_callback_err;
+	} else {
+		dev_info(&ddev->dev, "compdev created for (%s)\n",
+					ddev->name);
+	}
+#endif
+
 	return 0;
 
 display_postregistered_callback_err:
@@ -381,61 +375,55 @@ static struct notifier_block display_nb = {
 	.notifier_call = display_postregistered_callback,
 };
 
-/*
-* This function is used to refresh the display (lcd, hdmi, tvout) with black
-* when the framebuffer is registered.
-* The main display will not be updated if startup graphics is displayed
-* from u-boot.
-*/
-
-static int framebuffer_postregistered_callback(struct notifier_block *nb,
-	unsigned long event, void *data)
+static void update_mcde_opp(struct device *dev,
+					struct mcde_opp_requirements *reqs)
 {
-	int ret = 0;
-	struct fb_event *event_data = data;
-	struct fb_info *info;
-	struct fb_var_screeninfo var;
-	struct fb_fix_screeninfo fix;
-	struct mcde_fb *mfb;
+	s32 req_ape = PRCMU_QOS_DEFAULT_VALUE;
+	s32 req_ddr = PRCMU_QOS_DEFAULT_VALUE;
+	static s32 requested_qos;
+	static u8 prev_rot_channels;
+	static ktime_t rot_time;
+	s64 diff;
 
+	/* If a rotation is detected, clock up CPU to max */
+	if (reqs->num_rot_channels != prev_rot_channels) {
+		prev_rot_channels = reqs->num_rot_channels;
+		rot_time = ktime_get();
+	}
 
-	if (event != FB_EVENT_FB_REGISTERED)
-		return 0;
+   diff = ktime_to_ms(ktime_sub(ktime_get(),rot_time));
 
-	if (!event_data)
-		return 0;
+	/*
+	 * Wait a while before clocking down again
+	 * unless we have an overlay
+	 */
 
-	info = event_data->info;
-	mfb = to_mcde_fb(info);
-	if (mfb->id == 0 && display_initialized_during_boot)
-		goto out;
+	if ((reqs->num_overlays > 1) ||
+		 (diff < 5000)) {
+ 		req_ape = PRCMU_QOS_MAX_VALUE;
+		req_ddr = PRCMU_QOS_MAX_VALUE;
+	} else {
+		req_ape = PRCMU_QOS_DEFAULT_VALUE;
+		req_ddr = PRCMU_QOS_DEFAULT_VALUE;
+	}
 
-	var = info->var;
-	fix = info->fix;
-
-	var.yoffset = var.yoffset ? 0 : var.yres;
-	if (info->fbops->fb_pan_display)
-		ret = info->fbops->fb_pan_display(&var, info);
-out:
-	return ret;
+	if (req_ape != requested_qos) {
+		requested_qos = req_ape;
+		prcmu_qos_update_requirement(PRCMU_QOS_APE_OPP,
+						dev_name(dev), req_ape);
+		prcmu_qos_update_requirement(PRCMU_QOS_DDR_OPP,
+						dev_name(dev), req_ddr);
+	}
 }
-	 
-static struct notifier_block framebuffer_nb = {
-	.notifier_call = framebuffer_postregistered_callback,
-};
 
 int __init init_gavini_display_devices(void)
 {
+	struct mcde_platform_data *pdata = ux500_mcde_device.dev.platform_data;
+
 	int ret;
-
-	ret = fb_register_client(&framebuffer_nb);
-	if (ret)
-		pr_warning("Failed to register framebuffer notifier\n");
-
 	ret = mcde_dss_register_notifier(&display_nb);
 	if (ret)
 		pr_warning("Failed to register dss notifier\n");
-
 	if (system_rev >= GAVINI_R0_3) {
 		if (display_initialized_during_boot) {
 			generic_display0_r0_3.power_mode = MCDE_DISPLAY_PM_ON;
@@ -451,27 +439,42 @@ int __init init_gavini_display_devices(void)
 						port0.phy.dpi.clock_div;
 
 		ret = mcde_display_device_register(&generic_display0_r0_3);
-	} else {
+	} else 
+	{
 		if (display_initialized_during_boot) {
 			generic_display0.power_mode = MCDE_DISPLAY_PM_ON;
 			gavini_dpi_pri_display_info.platform_enabled = 1;
 		}
 
-		/*
+		/* 
 		 * The pixclock setting is not used within MCDE. The clock is
 		 * setup elsewhere. But the pixclock value is visible in user
 		 * space.
 		 */
-		gavini_dpi_pri_display_info.video_mode.pixclock /= \
-						port0.phy.dpi.clock_div;
-
-		ret = mcde_display_device_register(&generic_display0);
+		gavini_dpi_pri_display_info.video_mode.pixclock /= port0.phy.dpi.clock_div;
+		
+		ret = mcde_display_device_register(&generic_display0);	
 	}
+		/* MCDE pixelfetchwtrmrk levels in pixels per overlay */
+	{
+#if 1
+	/*
+	 * The pixel fetcher FIFO is 128*64bit = 8192bits = 1024bytes.
+	 * Overlay 0 is assumed 32bpp and overlay 1 is assumed 16bpp
+	 */
+	pdata->pixelfetchwtrmrk[0] = 128;//160; /* 160 -> 160px*32bpp/8=640bytes */
+	pdata->pixelfetchwtrmrk[1] = 128;//192; /* 192 -> 192px*16bpp/8=384bytes */
+#else /* 24 bit overlay */
+	u32 fifo = (1024*8 - 8 * BITS_PER_WORD) / 7;
+	fifo &= ~(BITS_PER_WORD - 1);
+	pdata->pixelfetchwtrmrk[0] = fifo * 4 / 32;	/* LCD 32bpp */
+	pdata->pixelfetchwtrmrk[1] = fifo * 3 / 24;	/* LCD 24bpp */
+#endif
+	}
+	pdata->update_opp = update_mcde_opp;
+
 	if (ret)
 		pr_warning("Failed to register generic display device 0\n");
-
-
-	/*lcd_drive_lowEMI();*/
 
 	#ifndef CONFIG_HAS_EARLYSUSPEND
 	dpi_pins = ux500_pins_get("mcde-dpi");

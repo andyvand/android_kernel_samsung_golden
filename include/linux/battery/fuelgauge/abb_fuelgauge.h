@@ -40,6 +40,9 @@
 	defined(CONFIG_MACH_SEC_RICCO)
 #define FGRES				130
 #define FGRES_CH			125
+#elif defined(CONFIG_MACH_SEC_SKOMER)
+#define FGRES				143
+#define FGRES_CH			143
 #else
 #define FGRES				130
 #define FGRES_CH			133
@@ -82,7 +85,11 @@
 #define BATT_CAPACITY_PATH		"/efs/last_battery_capacity"
 
 #define WAIT_FOR_INST_CURRENT_MAX	70
+#if defined(CONFIG_MACH_SEC_SKOMER)
+#define IGNORE_VBAT_HIGHCUR	-600 /* -600mA */
+#else
 #define IGNORE_VBAT_HIGHCUR	-500 /* -500mA */
+#endif
 #define CURR_VAR_HIGH	100 /*100mA*/
 #define NBR_CURR_SAMPLES	10
 
@@ -331,8 +338,10 @@ struct ab8500_fuelgauge_info {
 	int fg_res_chg;
 	int fg_res;
 	int lowbat_zero_voltage;
+	int fullcap_error_cnt;
 
 	bool initial_capacity_calib;
+	bool skip_init_measure;
 
 	bool recovery_needed;
 	bool high_curr_mode;

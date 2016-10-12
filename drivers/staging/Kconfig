@@ -184,4 +184,12 @@ source "drivers/staging/camera_flash/Kconfig"
 
 source "drivers/staging/pasr/Kconfig"
 
+
+if CW1200
+config STE_WLAN 
+	bool "Enabling STE WLAN relevant feature"
+	default y
+	
+source "drivers/staging/etf_drivers/Kconfig"
+endif
 endif # STAGING

@@ -2,11 +2,6 @@
 # Makefile for the linux kernel, UX500 machine.
 #
 
-ccflags-y :=	\
-	-Idrivers/staging/cg2900/include \
-	-Iarch/arm/mach-ux500 \
-	-Idrivers/staging/cg2900
-
 obj-y				:= clock.o cpu.o devices.o dcache.o \
 				   devices-common.o id.o pins.o \
 				   usb.o reboot_reasons.o timer.o \
@@ -63,8 +58,19 @@ obj-$(CONFIG_MACH_GAVINI)		+= board-gavini-pins.o board-gavini.o board-gavini-re
 ifeq ($(CONFIG_MACH_GAVINI), y)
 board-mcde-objs			+= board-gavini-mcde.o
 endif
+
+ifeq ($(CONFIG_MACH_CODINA_EURO), y)
+obj-$(CONFIG_MACH_CODINA_EURO)		+= board-codina-pins.o board-codina_eur.o board-codina-regulators.o \
+					   board-mop500-wlan.o board-codina-bm.o board-codina-battery.o board-codina-sdi.o
+else
+ifeq ($(CONFIG_MACH_CODINA_CHN), y)
+obj-$(CONFIG_MACH_CODINA_CHN)		+= board-codina-pins.o board-codina_eur.o board-codina-regulators.o \
+					   board-mop500-wlan.o board-codina-bm.o board-codina-battery.o board-codina-sdi.o
+else
 obj-$(CONFIG_MACH_CODINA)		+= board-codina-pins.o board-codina.o board-codina-regulators.o \
 					   board-mop500-wlan.o board-codina-bm.o board-codina-battery.o board-codina-sdi.o
+endif
+endif
 ifeq ($(CONFIG_MACH_CODINA), y)
 board-mcde-objs			+= board-codina-mcde.o
 endif
@@ -75,11 +81,23 @@ ifeq ($(CONFIG_MACH_SEC_GOLDEN), y)
 board-mcde-objs			+= board-golden-mcde.o
 endif
 
+obj-$(CONFIG_MACH_SEC_SKOMER)		+= board-skomer-pins.o board-skomer.o board-skomer-regulators.o \
+					   board-mop500-wlan.o board-skomer-bm.o board-skomer-battery.o board-skomer-sdi.o
+ifeq ($(CONFIG_MACH_SEC_SKOMER), y)
+board-mcde-objs			+= board-skomer-mcde.o
+endif
+
+obj-$(CONFIG_MACH_SEC_HENDRIX)		+= board-hendrix-pins.o board-hendrix.o board-hendrix-regulators.o \
+					   board-mop500-wlan.o board-hendrix-bm.o board-hendrix-battery.o board-hendrix-sdi.o
+ifeq ($(CONFIG_MACH_SEC_HENDRIX), y)
+board-mcde-objs			+= board-hendrix-mcde.o
+endif
 
 obj-$(CONFIG_MACH_SEC_KYLE)	+= board-kyle-pins.o board-kyle.o board-kyle-regulators.o \
-				    board-kyle-bm.o board-kyle-battery.o board-kyle-sdi.o board-kyle-wlan.o
+				    board-kyle-bm.o board-kyle-sdi.o
 ifeq ($(CONFIG_MACH_SEC_KYLE), y)
-board-mcde-objs			+= board-kyle-mcde.o
+board-mcde-objs					+= board-kyle-mcde.o
+obj-$(CONFIG_BATTERY_SAMSUNG)	+= board-kyle-battery.o
 endif
 obj-$(CONFIG_SMP)		+= platsmp.o headsmp.o
 obj-$(CONFIG_HOTPLUG_CPU)	+= hotplug.o
@@ -100,7 +118,6 @@ obj-$(CONFIG_UX500_DB_DUMP)		+= dbx500_dump.o
 obj-$(CONFIG_UX500_DEBUG_LAST_IO)	+= debug-last-io.o
 obj-$(CONFIG_RTC_HCTOHC)		+= hctohc.o
 obj-$(CONFIG_UX500_HW_OBSERVER)		+= hw-observer-debug.o
-obj-$(CONFIG_CG2900)		+= board-ux500-cg2900.o
 ifeq ($(CONFIG_UX500_SOC_DB8500), y)
 obj-$(CONFIG_STM_TRACE)			+= board-mop500-stm.o
 endif
@@ -109,13 +126,15 @@ obj-$(CONFIG_INPUT_AB8505_MICRO_USB_DETECT)	+= ssg_micro_usb_iddet.o abx_micro_u
 ifneq ($(CONFIG_SAMSUNG_JACK), y)
 endif
 obj-$(CONFIG_INPUT_AB8505_MICRO_USB_DETECT)	+= ssg_micro_usb_iddet.o abx_micro_usb_iddet.o
+ifeq ($(CONFIG_BT_BCM4330), y)
 obj-$(CONFIG_BT_BCM4330)			+= board-bluetooth-bcm4330.o
+else
+ifeq ($(CONFIG_BT_BCM4334), y)
 obj-$(CONFIG_BT_BCM4334)			+= board-bluetooth-bcm4334.o
+else
+ifneq ($(CONFIG_CG2900), y)
+obj-$(CONFIG_RFKILL)			+= sec_rfkill.o
+endif
+endif
+endif
 obj-$(CONFIG_MACH_SAMSUNG_UX500)	+= sec_common.o
-obj-y                                  += sec_debug/
-obj-$(CONFIG_SEC_DEBUG)			+= sec_debug.o
-obj-$(CONFIG_SAMSUNG_USE_SEC_LOG_BUF)	+= sec_log_buf.o
-obj-$(CONFIG_SAMSUNG_ADD_GAFORENSICINFO)+= sec_gaf.o
-obj-$(CONFIG_SAMSUNG_USE_GETLOG)	+= sec_getlog.o
-obj-$(CONFIG_SAMSUNG_USE_LOGGER_ADDON)	+= sec_logger.o
-

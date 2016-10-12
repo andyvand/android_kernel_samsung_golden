@@ -334,6 +334,51 @@ struct mgmt_rp_le_test_end {
 	__u16 num_pkts;
 } __packed;
 
+#ifdef CONFIG_BT_CG2900
+#define MGMT_OP_FLOW_SPECIFICATION	0x0029
+struct mgmt_cp_flow_spec {
+	bdaddr_t bdaddr;
+	/* Flow Specification Parameters */
+	__u32	token_bucket_size;
+	__u32	token_rate;
+	__u32	access_latency;
+	__u32	peak_bandwidth;
+	__u8	direction;
+	__u8	service_type;
+	__u8	flags;
+	/* VS Extended Flow Specification Parameters */
+	__u16	service_interval;
+	__u16	out_service_window;
+	__u16	in_service_window;
+	__u8	cqae;
+	__u16	packet_size;
+} __packed;
+struct mgmt_rp_flow_spec {
+	__u8 status;
+	bdaddr_t bdaddr;
+	__u32	token_bucket_size;
+	__u32	token_rate;
+	__u32	access_latency;
+	__u32	peak_bandwidth;
+	__u8	direction;
+	__u8	service_type;
+	__u8	flags;
+} __packed;
+struct mgmt_rp_vs_flow_spec {
+	__u8	status;
+	bdaddr_t bdaddr;
+	__u16	interval;
+	__u16	window;
+} __packed;
+#define MGMT_FLOW_SPECIFICATION_SIZE	34
+
+#define MGMT_OP_FORBID_ROLE_SWITCH	0x002A
+struct mgmt_cp_forbid_role_switch {
+	bdaddr_t bdaddr;
+} __packed;
+#define MGMT_FORBID_ROLE_SWITCH_SIZE	6
+#endif
+
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
 	__le16 opcode;
@@ -498,3 +543,7 @@ struct mgmt_ev_remote_features {
 	bdaddr_t bdaddr;
 	uint8_t features[8];
 } __packed;
+
+#ifdef CONFIG_BT_CG2900
+#define MGMT_EV_FLOW_SPECIFICATION_COMPLETE	0x0106
+#endif

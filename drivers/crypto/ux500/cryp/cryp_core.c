@@ -884,7 +884,7 @@ static int ablk_crypt(struct ablkcipher_request *areq)
 	struct ablkcipher_walk walk;
 	struct crypto_ablkcipher *cipher = crypto_ablkcipher_reqtfm(areq);
 	struct cryp_ctx *ctx = crypto_ablkcipher_ctx(cipher);
-	struct cryp_device_data *device_data;
+	struct cryp_device_data *device_data = NULL;
 	unsigned long src_paddr;
 	unsigned long dst_paddr;
 	int ret;

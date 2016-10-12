@@ -47,6 +47,12 @@
 #include <asm/system.h>
 #include <asm/traps.h>
 
+#ifdef CONFIG_ARCH_U8500
+#ifndef FIQ_START
+#define FIQ_START 0
+#endif /* FIQ_START */
+#endif /* CONFIG_PLAT_SAMSUNG */
+
 static unsigned long no_fiq_insn;
 
 /* Default reacquire function

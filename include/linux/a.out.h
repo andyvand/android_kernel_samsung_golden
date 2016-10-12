@@ -129,7 +129,7 @@ enum machine_type {
 #define SEGMENT_SIZE PAGE_SIZE
 #endif
 
-#ifdef linux
+#ifdef __linux__
 #ifdef __KERNEL__
 #include <asm/page.h>
 #else

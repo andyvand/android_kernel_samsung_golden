@@ -17,14 +17,6 @@
 #endif
 #include "alps_compass_io.h"
 
-extern int accsns_get_acceleration_data(int *xyz);
-extern int hscd_get_magnetic_field_data(int *xyz);
-extern void hscd_activate(int flgatm, int flg, int dtime);
-extern int accsns_activate(int flgatm, int flg, int dtime);
-extern int hscd_self_test_A(void);
-extern int hscd_self_test_B(void);
-
-
 #define EVENT_TYPE_ACCEL_X          ABS_X
 #define EVENT_TYPE_ACCEL_Y          ABS_Y
 #define EVENT_TYPE_ACCEL_Z          ABS_Z
@@ -33,9 +25,9 @@ extern int hscd_self_test_B(void);
 #define EVENT_TYPE_MAG_Y           ABS_HAT0Y
 #define EVENT_TYPE_MAG_Z           ABS_BRAKE
 
-#define ALPS_POLL_INTERVAL			100	/* msecs */
-#define ALPS_INPUT_FUZZ				0	/* event threshold */
-#define ALPS_INPUT_FLAT				0
+#define ALPS_POLL_INTERVAL   200    /* msecs */
+#define ALPS_INPUT_FUZZ        0    /* input event threshold */
+#define ALPS_INPUT_FLAT        0
 
 #define ON		1
 #define OFF		0
@@ -69,99 +61,96 @@ static long alps_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 	switch (cmd) {
 	case ALPSIO_SET_MAGACTIVATE:
-			ret = copy_from_user(&tmpval, argp, sizeof(tmpval));
-			if (ret) {
-				pr_info("error : ioctl(ALPSIO_SET_MAGACTIVATE)\n");
-				return -EFAULT;
-			}
+		ret = copy_from_user(&tmpval, argp, sizeof(tmpval));
+		if (ret) {
+			pr_err("%s : failed for ALPSIO_SET_MAGACTIVATE\n",
+				__func__);
+			return -EFAULT;
+		}
 #ifdef ALPS_DEBUG
-            printk("alps_ioctl(cmd = ALPSIO_SET_MAGACTIVATE), flgM = %d\n", tmpval);
+		pr_debug("%s : ALPSIO_SET_MAGACTIVATE, flgM = %d\n",
+					__func__, tmpval);
 #endif
-			mutex_lock(&data->alps_lock);
-			data->flgM = tmpval;
-			hscd_activate(1, tmpval, data->delay);
-			mutex_unlock(&data->alps_lock);
-			break;
+		mutex_lock(&data->alps_lock);
+		data->flgM = tmpval;
+		hscd_activate(1, data->flgM, data->delay);
+		mutex_unlock(&data->alps_lock);
+		break;
 	case ALPSIO_SET_ACCACTIVATE:
-			ret = copy_from_user(&tmpval, argp, sizeof(tmpval));
-			if (ret) {
-				pr_info("error : ioctl(cmd = ALPSIO_SET_ACCACTIVATE)\n");
-				return -EFAULT;
-			}
+		ret = copy_from_user(&tmpval, argp, sizeof(tmpval));
+		if (ret) {
+			pr_err("%s : failed for ALPSIO_SET_ACCACTIVATE\n",
+				__func__);
+			return -EFAULT;
+		}
 #ifdef ALPS_DEBUG
-            printk("alps_ioctl(cmd = ALPSIO_SET_ACCACTIVATE), flgA = %d\n", tmpval);
+		pr_debug("%s : ALPSIO_SET_ACCACTIVATE, flgM = %d\n",
+					__func__, tmpval);
 #endif
-			mutex_lock(&data->alps_lock);
-			data->flgA = tmpval;
-			if (accsns_activate(1, data->flgA, data->delay))
-			{
-			    pr_err("failed to activate accelerometer\n");
-			}
-			
-			mutex_unlock(&data->alps_lock);
-			break;
+		mutex_lock(&data->alps_lock);
+		data->flgA = tmpval;
+		accsns_activate(1, data->flgA, data->delay);
+
+		mutex_unlock(&data->alps_lock);
+		break;
 
 	case ALPSIO_SET_DELAY:
-			ret = copy_from_user(&tmpval, argp, sizeof(tmpval));
-			if (ret) {
-				pr_info("error : ioctl(ALPSIO_SET_DELAY)\n");
+		ret = copy_from_user(&tmpval, argp, sizeof(tmpval));
+		if (ret) {
+			pr_err("%s : failed for ALPSIO_SET_DELAY\n", __func__);
+			return -EFAULT;
+		}
+
+		mutex_lock(&data->alps_lock);
+		if (tmpval <= 10)
+			tmpval = 10;
+		else if (tmpval <= 20)
+			tmpval = 20;
+		else if (tmpval <=  70)
+			tmpval =  70;
+		else
+			tmpval = 200;
+		data->delay = tmpval;
+
+		if (data->flgM)
+			hscd_activate(1, data->flgM, data->delay);
+		if (data->flgA)
+			accsns_activate(1, data->flgA, data->delay);
+		mutex_unlock(&data->alps_lock);
+
+		pr_info("%s : ALPSIO_SET_DELAY, delay = %d\n",
+			__func__, data->delay);
+
+		break;
+	case ALPSIO_ACT_SELF_TEST_A:
+#ifdef ALPS_DEBUG
+		pr_debug("%s : ALPSIO_ACT_SELF_TEST_A\n", __func__);
+#endif
+			mutex_lock(&data->alps_lock);
+			ret = hscd_self_test_A();
+			mutex_unlock(&data->alps_lock);
+
+			if (copy_to_user(argp, &ret, sizeof(ret))) {
+				pr_err("%s : failed for ALPSIO_ACT_SELF_TEST_A\n",
+					__func__);
 				return -EFAULT;
 			}
-
-			mutex_lock(&data->alps_lock);
-			if (tmpval <= 10)
-				tmpval = 10;
-			else if (tmpval <= 20)
-				tmpval = 20;
-			else if (tmpval <=  70)
-				tmpval =  70;
-			else
-				tmpval = 200;
-			data->delay = tmpval;
-
-			if (data->flgM)
-				hscd_activate(1, data->flgM, data->delay);
-
-			if (data->flgA)
-				accsns_activate(1, data->flgA, data->delay);
-
-			mutex_unlock(&data->alps_lock);
-#ifdef ALPS_DEBUG
-            printk("     delay = %d\n", delay);
-#endif
 			break;
 
-        case ALPSIO_ACT_SELF_TEST_A:
+	case ALPSIO_ACT_SELF_TEST_B:
 #ifdef ALPS_DEBUG
-            printk("alps_ioctl(cmd = ALPSIO_ACT_SELF_TEST_A)\n");
+	pr_debug("%s : ALPSIO_ACT_SELF_TEST_A\n", __func__);
 #endif
-            mutex_lock(&data->alps_lock);
-            ret = hscd_self_test_A();
-            mutex_unlock(&data->alps_lock);
-#ifdef ALPS_DEBUG
-            printk("[HSCD] Self test-A result : %d\n", ret);
-#endif
-            if (copy_to_user(argp, &ret, sizeof(ret))) {
-                printk( "error : alps_ioctl(cmd = ALPSIO_ACT_SELF_TEST_A)\n" );
-                return -EFAULT;
-            }
-            break;
+			mutex_lock(&data->alps_lock);
+			ret = hscd_self_test_B();
+			mutex_unlock(&data->alps_lock);
 
-        case ALPSIO_ACT_SELF_TEST_B:
-#ifdef ALPS_DEBUG
-            printk("alps_ioctl(cmd = ALPSIO_ACT_SELF_TEST_B)\n");
-#endif
-            mutex_lock(&data->alps_lock);
-            ret = hscd_self_test_B();
-            mutex_unlock(&data->alps_lock);
-#ifdef ALPS_DEBUG
-            printk("[HSCD] Self test-B result : %d\n", ret);
-#endif
-            if (copy_to_user(argp, &ret, sizeof(ret))) {
-                printk( "error : alps_ioctl(cmd = ALPSIO_ACT_SELF_TEST_B)\n" );
-                return -EFAULT;
-            }
-            break;
+			if (copy_to_user(argp, &ret, sizeof(ret))) {
+				pr_err("%s : failed for ALPSIO_ACT_SELF_TEST_B\n",
+					__func__);
+				return -EFAULT;
+			}
+			break;
 
 	default:
 			return -ENOTTY;
@@ -191,7 +180,7 @@ static const struct file_operations alps_fops = {
 static void accsns_poll(struct input_dev *idev)
 {
 	int xyz[3];
-	
+
 	if (accsns_get_acceleration_data(xyz) == 0) {
 		input_report_abs(idev, EVENT_TYPE_ACCEL_X, xyz[0]);
 		input_report_abs(idev, EVENT_TYPE_ACCEL_Y, xyz[1]);
@@ -369,7 +358,8 @@ static int alps_resume(struct device *dev)
 static void alps_early_suspend(struct early_suspend *handler)
 {
 	struct alps_data *data;
-	data = container_of(handler, struct alps_data, alps_early_suspend_handler);
+	data = container_of(handler, struct alps_data,
+		alps_early_suspend_handler);
 	mutex_lock(&data->alps_lock);
 	data->suspend_flag = ON;
 	mutex_unlock(&data->alps_lock);
@@ -378,7 +368,8 @@ static void alps_early_suspend(struct early_suspend *handler)
 static void alps_early_resume(struct early_suspend *handler)
 {
 	struct alps_data *data;
-	data = container_of(handler, struct alps_data, alps_early_suspend_handler);
+	data = container_of(handler, struct alps_data,
+		alps_early_suspend_handler);
 	mutex_lock(&data->alps_lock);
 	data->suspend_flag = OFF;
 	mutex_unlock(&data->alps_lock);

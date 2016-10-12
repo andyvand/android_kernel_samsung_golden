@@ -8,7 +8,6 @@ ifdef CONFIG_DEBUG_FS
 endif
 
 obj-$(CONFIG_HID)		+= hid.o
-obj-$(CONFIG_UHID)		+= uhid.o
 
 hid-$(CONFIG_HIDRAW)		+= hidraw.o
 
@@ -24,14 +23,6 @@ ifdef CONFIG_LOGIG940_FF
 endif
 ifdef CONFIG_LOGIWII_FF
 	hid-logitech-y	+= hid-lg4ff.o
-endif
-
-hid-wiimote-y		:= hid-wiimote-core.o
-ifdef CONFIG_HID_WIIMOTE_EXT
-	hid-wiimote-y	+= hid-wiimote-ext.o
-endif
-ifdef CONFIG_DEBUG_FS
-	hid-wiimote-y	+= hid-wiimote-debug.o
 endif
 
 obj-$(CONFIG_HID_A4TECH)	+= hid-a4tech.o
@@ -82,7 +73,6 @@ obj-$(CONFIG_HID_ZEROPLUS)	+= hid-zpff.o
 obj-$(CONFIG_HID_ZYDACRON)	+= hid-zydacron.o
 obj-$(CONFIG_HID_WACOM)		+= hid-wacom.o
 obj-$(CONFIG_HID_WALTOP)	+= hid-waltop.o
-obj-$(CONFIG_HID_WIIMOTE)	+= hid-wiimote.o
 
 obj-$(CONFIG_USB_HID)		+= usbhid/
 obj-$(CONFIG_USB_MOUSE)		+= usbhid/

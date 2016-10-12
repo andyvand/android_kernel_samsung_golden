@@ -729,6 +729,14 @@ static int hci_dev_do_close(struct hci_dev *hdev)
 	/* for persist flags */
 	unsigned long persistflags = 0;
 
+#ifdef CONFIG_BT_CG2900
+	// For testing
+	if (test_and_clear_bit(HCI_AUTO_OFF, &hdev->dev_flags))
+		cancel_delayed_work(&hdev->power_off);
+
+	test_and_clear_bit(HCI_SETUP, &hdev->dev_flags);
+#endif
+
 	BT_DBG("%s %p", hdev->name, hdev);
 	cancel_work_sync(&hdev->le_scan);
 
@@ -749,8 +757,11 @@ static int hci_dev_do_close(struct hci_dev *hdev)
 		cancel_delayed_work(&hdev->discov_off);
 		hdev->discov_timeout = 0;
 	}
+
+#ifndef CONFIG_BT_CG2900
 	if (test_and_clear_bit(HCI_AUTO_OFF, &hdev->dev_flags))
 		cancel_delayed_work(&hdev->power_off);
+#endif
 	if (test_and_clear_bit(HCI_SERVICE_CACHE, &hdev->dev_flags))
 		cancel_delayed_work(&hdev->service_cache);
 
@@ -1128,6 +1139,29 @@ static void hci_power_off(struct work_struct *work)
 	hci_dev_close(hdev->id);
 }
 
+#ifdef CONFIG_BT_CG2900
+static void hci_reinitiate_auth(struct work_struct *work)
+{
+	struct hci_dev *hdev = container_of(work, struct hci_dev, reinitiate_auth);
+	struct hci_cp_auth_requested cp;
+
+	BT_DBG("%s, handle = %04x", hdev->name, hdev->reinitiate_handle);
+
+	cp.handle = hdev->reinitiate_handle;
+
+	hci_send_cmd(hdev, HCI_OP_AUTH_REQUESTED,
+									sizeof(cp), &cp);
+}
+
+void hci_reinitiate_auth_timer(unsigned long data)
+{
+	struct hci_dev *hdev = (struct hci_dev *) data;
+	BT_DBG("%s", hdev->name);
+
+	queue_work(hdev->workqueue, &hdev->reinitiate_auth);
+}
+#endif
+
 static void hci_discov_off(struct work_struct *work)
 {
 	struct hci_dev *hdev;
@@ -1206,6 +1240,43 @@ struct link_key *hci_find_link_key(struct hci_dev *hdev, bdaddr_t *bdaddr)
 	return NULL;
 }
 
+#ifdef CONFIG_BT_CG2900
+static bool hci_persistent_key(struct hci_dev *hdev, struct hci_conn *conn,
+						u8 key_type, u8 old_key_type)
+{
+	/* Legacy key */
+	if (key_type < 0x03)
+		return true;
+
+	/* Debug keys are insecure so don't store them persistently */
+	if (key_type == HCI_LK_DEBUG_COMBINATION)
+		return false;
+
+	/* Changed combination key and there's no previous one */
+	if (key_type == HCI_LK_CHANGED_COMBINATION && old_key_type == 0xff)
+		return false;
+
+	/* Security mode 3 case */
+	if (!conn)
+		return true;
+
+	/* Neither local nor remote side had no-bonding as requirement */
+	if (conn->auth_type > 0x01 && conn->remote_auth > 0x01)
+		return true;
+
+	/* Local side had dedicated bonding as requirement */
+	if (conn->auth_type == 0x02 || conn->auth_type == 0x03)
+		return true;
+
+	/* Remote side had dedicated bonding as requirement */
+	if (conn->remote_auth == 0x02 || conn->remote_auth == 0x03)
+		return true;
+
+	/* If none of the above criteria match, then don't store the key
+	 * persistently */
+	return false;
+}
+#else
 static int hci_persistent_key(struct hci_dev *hdev, struct hci_conn *conn,
 						u8 key_type, u8 old_key_type)
 {
@@ -1241,6 +1312,7 @@ static int hci_persistent_key(struct hci_dev *hdev, struct hci_conn *conn,
 	 * persistently */
 	return 0;
 }
+#endif
 
 struct smp_ltk *hci_find_ltk(struct hci_dev *hdev, __le16 ediv, u8 rand[8])
 {
@@ -1293,7 +1365,12 @@ int hci_add_link_key(struct hci_dev *hdev, struct hci_conn *conn, int new_key,
 				bdaddr_t *bdaddr, u8 *val, u8 type, u8 pin_len)
 {
 	struct link_key *key, *old_key;
+#ifdef CONFIG_BT_CG2900
+	u8 old_key_type;
+	bool persistent;
+#else
 	u8 old_key_type, persistent;
+#endif
 
 	old_key = hci_find_link_key(hdev, bdaddr);
 	if (old_key) {
@@ -1336,10 +1413,15 @@ int hci_add_link_key(struct hci_dev *hdev, struct hci_conn *conn, int new_key,
 
 	mgmt_new_link_key(hdev, key, persistent);
 
+#ifdef CONFIG_BT_CG2900
+	if (conn)
+		conn->flush_key = !persistent;
+#else
 	if (!persistent) {
 		list_del(&key->list);
 		kfree(key);
 	}
+#endif
 
 	return 0;
 }
@@ -1560,6 +1642,89 @@ int hci_blacklist_del(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 type)
 
 	return mgmt_device_unblocked(hdev, bdaddr, type);
 }
+
+#ifdef CONFIG_BT_CG2900
+int hci_rs_blacklist_lookup(struct hci_dev *hdev,
+						bdaddr_t *bdaddr)
+{
+	struct list_head *p;
+
+	BT_DBG("%s for %s", hdev->name, batostr(bdaddr));
+
+	list_for_each(p, &hdev->rs_blacklist) {
+		struct bdaddr_list *b;
+
+		b = list_entry(p, struct bdaddr_list, list);
+
+		if (bacmp3(bdaddr, &b->bdaddr) == 0)
+			return 0;
+	}
+
+	return -1;
+}
+
+int hci_rs_blacklist_clear(struct hci_dev *hdev)
+{
+	struct list_head *p, *n;
+
+	BT_DBG("%s", hdev->name);
+
+	list_for_each_safe(p, n, &hdev->rs_blacklist) {
+		struct bdaddr_list *b;
+
+		b = list_entry(p, struct bdaddr_list, list);
+
+		list_del(p);
+		kfree(b);
+	}
+
+	return 0;
+}
+
+int hci_rs_blacklist_add(struct hci_dev *hdev, bdaddr_t *bdaddr)
+{
+	struct bdaddr_list *entry;
+
+	BT_DBG("%s for %s", hdev->name, batostr(bdaddr));
+
+	if (bacmp(bdaddr, BDADDR_ANY) == 0)
+		return -EBADF;
+
+	if (!hci_rs_blacklist_lookup(hdev, bdaddr))
+		return -EEXIST;
+
+	entry = kzalloc(sizeof(struct bdaddr_list), GFP_KERNEL);
+	if (!entry) {
+		return -ENOMEM;
+	}
+
+	bacpy(&entry->bdaddr, bdaddr);
+
+	list_add(&entry->list, &hdev->rs_blacklist);
+
+	return 0;
+}
+
+int hci_rs_blacklist_create(struct hci_dev *hdev)
+{
+	bdaddr_t ba;
+	int err;
+
+	err = strtoba("00:13:17:00:00:00", &ba);
+	if (err)
+		return err;
+
+	err = hci_rs_blacklist_add(hdev, &ba);
+	if (err)
+		return err;
+	err = strtoba("00:02:78:00:00:00", &ba);
+	if (err)
+		return err;
+
+	return hci_rs_blacklist_add(hdev, &ba);
+
+}
+#endif
 
 static void hci_clear_adv_cache(unsigned long arg)
 {
@@ -1820,6 +1985,10 @@ int hci_register_dev(struct hci_dev *hdev)
 
 	INIT_LIST_HEAD(&hdev->blacklist);
 
+#ifdef CONFIG_BT_CG2900
+	INIT_LIST_HEAD(&hdev->rs_blacklist);
+#endif
+
 	INIT_LIST_HEAD(&hdev->uuids);
 
 	INIT_LIST_HEAD(&hdev->link_keys);
@@ -1835,7 +2004,11 @@ int hci_register_dev(struct hci_dev *hdev)
 
 	INIT_WORK(&hdev->power_on, hci_power_on);
 	INIT_DELAYED_WORK(&hdev->power_off, hci_power_off);
-
+#ifdef CONFIG_BT_CG2900
+	INIT_WORK(&hdev->reinitiate_auth, hci_reinitiate_auth);
+	setup_timer(&hdev->reinitiate_auth_timer, hci_reinitiate_auth_timer,
+		(unsigned long) hdev);
+#endif
 	INIT_DELAYED_WORK(&hdev->discov_off, hci_discov_off);
 
 	memset(&hdev->stat, 0, sizeof(struct hci_dev_stats));
@@ -1858,6 +2031,9 @@ int hci_register_dev(struct hci_dev *hdev)
 							PTR_ERR(hdev->tfm));
 
 	hci_register_sysfs(hdev);
+#ifdef CONFIG_BT_CG2900
+	hci_rs_blacklist_create(hdev);
+#endif
 
 	hdev->rfkill = rfkill_alloc(hdev->name, &hdev->dev,
 				RFKILL_TYPE_BLUETOOTH, &hci_rfkill_ops, hdev);
@@ -1904,6 +2080,8 @@ int hci_unregister_dev(struct hci_dev *hdev)
 	for (i = 0; i < NUM_REASSEMBLY; i++)
 		kfree_skb(hdev->reassembly[i]);
 
+	cancel_work_sync(&hdev->power_on);
+
 	if (!test_bit(HCI_INIT, &hdev->flags) &&
 					!test_bit(HCI_SETUP, &hdev->dev_flags)) {
 		hci_dev_lock_bh(hdev);
@@ -1924,7 +2102,13 @@ int hci_unregister_dev(struct hci_dev *hdev)
 		rfkill_destroy(hdev->rfkill);
 	}
 
+#ifdef CONFIG_BT_CG2900
+	hci_rs_blacklist_clear(hdev);
+#endif
 	hci_unregister_sysfs(hdev);
+#ifdef CONFIG_BT_CG2900
+	del_timer(&hdev->reinitiate_auth_timer);
+#endif
 	del_timer_sync(&hdev->adv_timer);
 
 	destroy_workqueue(hdev->workqueue);

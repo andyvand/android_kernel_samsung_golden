@@ -97,7 +97,7 @@ config TOUCHSCREEN_ATMEL_MXT
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called atmel_mxt_ts.
-	  
+
 config TOUCHSCREEN_ATMEL_MXT224S
 	tristate "Atmel mXT MXT224S I2C Touchscreen"
 	depends on I2C
@@ -791,6 +791,13 @@ config TOUCHSCREEN_MMS136_TS
 	help
 	  Say Y here if you have a MELFAS mms-136 touchscreen.
 
+config TOUCHSCREEN_MMS134S_TS
+	bool "MELFAS MMS-134S touchscreen driver"
+	depends on I2C
+	default n
+	help
+	  Say Y here if you have a MELFAS MMS-134S touchscreen.
+
 config TOUCHSCREEN_MMS1XX_TS
 	bool "MELFAS MMS-1xx touchscreen driver"
 	depends on I2C
@@ -798,6 +805,11 @@ config TOUCHSCREEN_MMS1XX_TS
 	help
 	  Say Y here if you have a MELFAS MMS-100 series touchscreen.
 
+config TOUCHSCREEN_TMA140
+	tristate "Cypress TMA140 i2c touchscreen"
+	depends on I2C
+	help
+	  This enables support for TMA140 driver over I2C based touchscreens.
 
 endif
 

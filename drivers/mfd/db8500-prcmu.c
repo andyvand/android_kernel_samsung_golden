@@ -661,6 +661,12 @@ int db8500_prcmu_set_display_clocks(void)
 
 	return 0;
 }
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN) || defined(CONFIG_MACH_GAVINI_CHN) || defined(CONFIG_MACH_CODINA_CHN) 
+static u32 db8500_prcmu_tcdm_read(unsigned int reg)
+{
+	return readl(tcdm_base + reg);
+}
+#endif
 
 static u32 db8500_prcmu_read(unsigned int reg)
 {
@@ -741,6 +747,28 @@ static struct prcmu_fw_version *db8500_prcmu_get_fw_version(void)
 
 	return fw_info.valid ? ver : NULL;
 }
+
+/*
+ * it's really redundant job to see this value for ApSleep
+ * however, there's a suspicious problem(ER416165) which seems to be related to ApSleep.
+ * The same suspicion goes for ER472557.
+ * @dedicated usage only on cpuidle
+ */
+bool prcmu_is_mcdeclk_on(void)
+{
+	volatile unsigned int reg_value;
+	reg_value = readl(PRCM_MCDECLK_MGT);
+	return (reg_value & 0x100 /* MCDECLKEN */);
+}
+EXPORT_SYMBOL(prcmu_is_mcdeclk_on);
+
+bool prcmu_is_mmcclk_on(void)
+{
+	volatile unsigned int reg_value;
+	reg_value = readl(PRCM_SDMMCCLK_MGT);
+	return (reg_value & 0x100 /* SDMMCCLKEN */);
+}
+EXPORT_SYMBOL(prcmu_is_mmcclk_on);
 
 bool prcmu_is_ulppll_disabled(void)
 {
@@ -1837,7 +1865,7 @@ static int request_panic_pll(u8 clock, bool enable)
 static int request_panic_sysclk(bool enable)
 {
 	int r;
-	/* unsigned long flags; */
+	unsigned long flags;
 
 	r = 0;
 
@@ -1867,7 +1895,7 @@ static int request_panic_sysclk(bool enable)
 static int request_panic_clock(u8 clock, bool enable)
 {
 	u32 val;
-	/* unsigned long flags; */
+	unsigned long flags;
 
 	/* Grab the HW semaphore. */
 	while ((readl(PRCM_SEM) & PRCM_SEM_PRCM_SEM) != 0)
@@ -2603,6 +2631,56 @@ static int db8500_prcmu_abb_read_no_irq(u8 slave, u8 reg, u8 *value, u8 size)
 	return r;
 }
 
+/* Only to be used before restart! */
+static int db8500_prcmu_abb_write_no_irq(u8 slave, u8 reg, u8 *value, u8 size)
+{
+	int r;
+	int count = 0;
+
+	if (size != 1)
+		return -EINVAL;
+
+	WARN_ON(!irqs_disabled());
+
+	while (readl(PRCM_MBOX_CPU_VAL) & MBOX_BIT(5)) {
+		udelay(100);
+		cpu_relax();
+		count++;
+		if (count > POLLING_TIMEOUT) {
+			pr_err("%s: Error: mailbox 5 busy\n", __func__);
+			return -EINVAL;
+		}
+	}
+
+	writeb(0, (tcdm_base + PRCM_MBOX_HEADER_REQ_MB5));
+	writeb(PRCMU_I2C_WRITE(slave), (tcdm_base + PRCM_REQ_MB5_I2C_SLAVE_OP));
+	writeb(PRCMU_I2C_STOP_EN, (tcdm_base + PRCM_REQ_MB5_I2C_HW_BITS));
+	writeb(reg, (tcdm_base + PRCM_REQ_MB5_I2C_REG));
+	writeb(*value, (tcdm_base + PRCM_REQ_MB5_I2C_VAL));
+
+	writel(MBOX_BIT(5), PRCM_MBOX_CPU_SET);
+
+	count = 0;
+	while (!(readl(PRCM_ARM_IT1_VAL) & MBOX_BIT(5))) {
+		udelay(100);
+		cpu_relax();
+		count++;
+		if (count > TRANSFER_TIMEOUT) {
+			pr_err("%s: Error: i2c transfer timed out\n", __func__);
+			return -EINVAL;
+		}
+	}
+
+	mb5_transfer.ack.status = readb(tcdm_base + PRCM_ACK_MB5_I2C_STATUS);
+	mb5_transfer.ack.value = readb(tcdm_base + PRCM_ACK_MB5_I2C_VAL);
+
+	writel(MBOX_BIT(5), PRCM_ARM_IT1_CLR);
+
+	r = ((mb5_transfer.ack.status == I2C_WR_OK) ? 0 : -EIO);
+
+	return r;
+}
+
 /**
  * db8500_prcmu_abb_write_masked() - Write masked register value(s) to the ABB.
  * @slave:	The I2C slave address.
@@ -2648,8 +2726,7 @@ static int db8500_prcmu_abb_write_masked(u8 slave, u8 reg, u8 *value, u8 *mask,
 	}
 
 	if (!r) {
-		*value = mb5_transfer.ack.value;
-		log_this(240, "reg", slave << 8 | reg, "mask|value", *mask << 16 | *value);
+		log_this(240, "reg", slave << 8 | reg, "mask|write", *mask << 16 | *value);
 		trace_printk("(%02X&%02X)@%04Xh\n", *value, *mask, (slave << 8 | reg));
 	} else {
 		log_this(240, "reg", slave << 8 | reg, "error", mb5_transfer.ack.status);
@@ -2875,6 +2952,7 @@ static int db8500_prcmu_abb_write(u8 slave, u8 reg, u8 *value, u8 size)
  */
 void prcmu_ac_wake_req(void)
 {
+	bool bitsetretried = false;
 	u32 val;
 	u32 status;
 
@@ -2884,6 +2962,13 @@ void prcmu_ac_wake_req(void)
 	trace_u8500_ac_wake_req(val);
 	if (val & PRCM_HOSTACCESS_REQ_HOSTACCESS_REQ)
 		goto unlock_and_return;
+
+	if (mb0_transfer.ac_wake_work.done) {
+		pr_crit("%s: ac_wake_work was non-zero (%d) on entry!\n",  __func__,
+			mb0_transfer.ac_wake_work.done);
+
+		INIT_COMPLETION(mb0_transfer.ac_wake_work);
+	}
 
 	atomic_set(&ac_wake_req_state, 1);
 
@@ -2903,7 +2988,15 @@ retry:
 	writel(val, PRCM_HOSTACCESS_REQ);
 	if (!wait_for_completion_timeout(&mb0_transfer.ac_wake_work,
 			msecs_to_jiffies(5000))) {
+		if (!bitsetretried &&
+		    !(readl_relaxed(PRCM_HOSTACCESS_REQ) & PRCM_HOSTACCESS_REQ_HOSTACCESS_REQ)) {
+			bitsetretried = true;
+			pr_crit("prcmu: PRCM_HOSTACCESS_REQ bit didn't get set (%#x)?!, try again\n",
+				readl_relaxed(PRCM_HOSTACCESS_REQ));
+			goto retry;
+		}
 		db8500_prcmu_debug_dump(true);
+		pr_crit("PRCM_HOSTACCESS_REQ %#x bitsetretried %d\n", readl_relaxed(PRCM_HOSTACCESS_REQ), bitsetretried);
 		panic("prcmu: %s timed out (5 s) waiting for a reply.\n",
 				__func__);
 	}
@@ -2922,19 +3015,29 @@ retry:
 			__func__, status);
 		udelay(1200);
 
-		val &= ~PRCM_HOSTACCESS_REQ_WAKE_REQ;
+		status = readl(PRCM_MOD_AWAKE_STATUS) & BITS(0, 1);
+		if (status != (PRCM_MOD_AWAKE_STATUS_PRCM_MOD_AAPD_AWAKE |
+				PRCM_MOD_AWAKE_STATUS_PRCM_MOD_COREPD_AWAKE)) {
+			pr_err("prcmu: %s waited, but modem still not awake (0x%X).\n",
+			        __func__, status);
 
-		writel(val, (PRCM_HOSTACCESS_REQ));
-		if (wait_for_completion_timeout(&mb0_transfer.ac_wake_work,
-				msecs_to_jiffies(5000))) {
-			goto retry;
+			/* Do an ac sleep req first and then retry */
+			val &= ~PRCM_HOSTACCESS_REQ_HOSTACCESS_REQ;
 
+			writel(val, (PRCM_HOSTACCESS_REQ));
+			if (wait_for_completion_timeout(&mb0_transfer.ac_wake_work,
+					msecs_to_jiffies(5000))) {
+				goto retry;
+
+			} else {
+				db8500_prcmu_debug_dump(true);
+				panic("prcmu: %s timed out again (5 s) waiting for a reply.\n",
+					__func__);
+			}
 		} else {
-			db8500_prcmu_debug_dump(true);
-			panic("prcmu: %s timed out again (5 s) waiting for a reply.\n",
-				__func__);
+			pr_err("prcmu: %s modem awake after waiting (0x%X)\n",
+			       __func__, status);
 		}
-
 	}
 
 unlock_and_return:
@@ -2954,6 +3057,13 @@ void prcmu_ac_sleep_req()
 	trace_u8500_ac_sleep_req(val);
 	if (!(val & PRCM_HOSTACCESS_REQ_HOSTACCESS_REQ))
 		goto unlock_and_return;
+
+	if (mb0_transfer.ac_wake_work.done) {
+		pr_crit("%s: ac_wake_work was non-zero (%d) on entry!\n",  __func__,
+			mb0_transfer.ac_wake_work.done);
+
+		INIT_COMPLETION(mb0_transfer.ac_wake_work);
+	}
 
 	log_this(60, NULL, 0, NULL, 0);
 	val &= ~(PRCM_HOSTACCESS_REQ_HOSTACCESS_REQ |
@@ -2984,9 +3094,17 @@ static bool db8500_prcmu_is_ac_wake_requested(void)
  * Saves the reset reason code and then sets the APE_SOFTRST register which
  * fires interrupt to fw
  */
+#define	PCUT_CTR_AND_STATUS	0x12
+
 static void db8500_prcmu_system_reset(u16 reset_code)
 {
+	u8 power_cut_reset = 0;
 	trace_u8500_system_reset(reset_code);
+
+	/* Disable power-cut feature */
+	(void)db8500_prcmu_abb_write_no_irq(AB8500_RTC, PCUT_CTR_AND_STATUS,
+						&power_cut_reset, 1);
+
 	writew_relaxed(reset_code, (tcdm_base + PRCM_SW_RST_REASON));
 #ifdef CONFIG_SAMSUNG_LOG_BUF
 	__write_log(PRCM_APE_SOFTRST);
@@ -3098,8 +3216,12 @@ static bool read_mailbox_0(void)
 			pr_info("Wakeup Status: 0x%08x\n", ev);
                         if(ev == 0x00800000) {
                                 pr_info("Wakeup Status: UART\n");
+
                                 wake_lock_timeout(&prcmu_uart_wake_lock, 20*HZ);
+
+#ifdef CONFIG_DBX8500_DEBUG
                                 ux500_ci_dbg_console();
+#endif /* CONFIG_DBX8500_DEBUG */
                         } 			
 		}
 //- WAKEUP CHECK
@@ -3520,6 +3642,9 @@ static struct prcmu_early_data db8500_early_fops = {
 	.request_clock = db8500_prcmu_request_clock,
 
 	/*  direct register access */
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN) || defined(CONFIG_MACH_GAVINI_CHN) || defined(CONFIG_MACH_CODINA_CHN) 
+	.tcdm_read = db8500_prcmu_tcdm_read,
+#endif
 	.read = db8500_prcmu_read,
 	.write =  db8500_prcmu_write,
 	.write_masked = db8500_prcmu_write_masked,
@@ -4028,10 +4153,10 @@ static void  db8500_prcmu_update_freq(void *pdata)
 	case PRCMU_FW_PROJECT_U8420:
 	case PRCMU_FW_PROJECT_U8420_SYSCLK:
 	case PRCMU_FW_PROJECT_A9420:
+	case PRCMU_FW_PROJECT_U8500_MBL:
 		freq_table[3].frequency = 1000000;
 		break;
 	case PRCMU_FW_PROJECT_U8500_C2:
-	case PRCMU_FW_PROJECT_U8500_MBL:
 	case PRCMU_FW_PROJECT_U8520:
 		freq_table[3].frequency = 1150000;
 		break;

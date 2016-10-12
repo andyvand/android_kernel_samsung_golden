@@ -7,6 +7,15 @@
  *
  *  Host driver specific definitions.
  */
+
+#if defined(CONFIG_MACH_JANICE) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_CODINA)|| defined(CONFIG_MACH_GAVINI)
+#define _MMC_SAFE_ACCESS_
+#endif
+
+#ifdef _MMC_SAFE_ACCESS_
+extern int mmc_is_available;
+#endif
+ 
 #ifndef LINUX_MMC_HOST_H
 #define LINUX_MMC_HOST_H
 
@@ -244,6 +253,7 @@ struct mmc_host {
 #define MMC_CAP2_BROKEN_VOLTAGE	(1 << 7)	/* Use the broken voltage */
 #define MMC_CAP2_DETECT_ON_ERR	(1 << 8)	/* On I/O err check card removal */
 #define MMC_CAP2_HC_ERASE_SZ	(1 << 9)	/* High-capacity erase size */
+#define MMC_CAP2_SECURE_ERASE_EN (1 << 31)	
 
 	mmc_pm_flag_t		pm_caps;	/* supported pm features */
 	unsigned int        power_notify_type;

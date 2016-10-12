@@ -28,7 +28,7 @@
  * Date     By       Summary
  * -------- -------- -------------------------------------------------------
  * 06/28/11 YC		 Original Creation (Test version:1.0)
- * 06/14/12 YC		 Implement px3315 driver v1.9 final version for SS. 
+ * 06/14/12 YC		 Implement px3315 driver v1.9 final version for SS.
  */
 
 #include <linux/module.h>
@@ -46,6 +46,8 @@
 #include <linux/regulator/consumer.h>
 #include <mach/board-sec-ux500.h>
 #include <mach/px3315.h>
+#include <linux/sensors_core.h>
+
 
 #define PX3315_DRV_NAME	"px3315"
 #define DRIVER_VERSION		"1.9"
@@ -147,9 +149,8 @@ struct px3315_power_data {
 };
 static struct px3315_power_data px3315_power;
 static struct i2c_client *this_client;
-extern int sensors_register(struct device *dev, void * drvdata,
-		struct device_attribute *attributes[], char *name);
-static u8 px3315_reg[PX3315_NUM_CACHABLE_REGS] = 
+
+static u8 px3315_reg[PX3315_NUM_CACHABLE_REGS] =
 	{0x00,0x01,0x02,0x0a,0x0b,0x0e,0x0f,
 	 0x20,0x21,0x22,0x23,0x24,0x28,0x29,0x2a,0x2b,0x2c,0x2d};
 
@@ -208,6 +209,7 @@ static int __px3315_write_reg(struct i2c_client *client,
  * internally used functions
  */
 
+/*
 static int px3315_get_calib(struct i2c_client *client)
 {
 	int lsb, msb;
@@ -217,11 +219,12 @@ static int px3315_get_calib(struct i2c_client *client)
 				PX3315_PX_CALIBH_MASK, PX3315_PX_CALIBH_SHIFT);
 	return ((msb << 1) | lsb);
 }
+*/
 
 static int px3315_set_calib(struct i2c_client *client, int val)
 {
 	int lsb, msb, err;
-	
+
 	msb = val >> 1;
 	lsb = val & PX3315_PX_CALIBL_MASK;
 	err = __px3315_write_reg(client, PX3315_PX_CALIBL,
@@ -266,10 +269,10 @@ static int px3315_get_plthres(struct i2c_client *client)
 static int px3315_set_plthres(struct i2c_client *client, int val)
 {
 	int lsb, msb, err;
-	
+
 	msb = val >> 2;
 	lsb = val & PX3315_PX_LTHL_MASK;
-	
+
 	err = __px3315_write_reg(client, PX3315_PX_LTHL,
 		PX3315_PX_LTHL_MASK, PX3315_PX_LTHL_SHIFT, lsb);
 	if (err)
@@ -295,10 +298,10 @@ static int px3315_get_phthres(struct i2c_client *client)
 static int px3315_set_phthres(struct i2c_client *client, int val)
 {
 	int lsb, msb, err;
-	
+
 	msb = val >> 2;
 	lsb = val & PX3315_PX_HTHL_MASK;
-	
+
 	err = __px3315_write_reg(client, PX3315_PX_HTHL,
 		PX3315_PX_HTHL_MASK, PX3315_PX_HTHL_SHIFT, lsb);
 	if (err)
@@ -345,7 +348,7 @@ static int px3315_get_object(struct i2c_client *client, int lock)
 static int px3315_get_intstatus(struct i2c_client *client)
 {
 	int val;
-	
+
 	val = i2c_smbus_read_byte_data(client, PX3315_INT_COMMAND);
 	val &= PX3315_INT_MASK;
 
@@ -497,7 +500,7 @@ static int proximity_do_calibrate(struct px3315_data  *data,
 		}
 		/* update offest */
 		px3315_set_calib(data->client, data->offset_value);
-		
+
 		px3315_set_plthres(data->client,
 			PX_PROX_CAL_THREL);
 		px3315_set_phthres(data->client,
@@ -611,7 +614,7 @@ static ssize_t px3315_store_mode(struct device *dev,
 		return -EINVAL;
 
 	ret = px3315_set_mode(data->client, val);
-	
+
 	if (ret < 0)
 		return ret;
 	return count;
@@ -719,7 +722,7 @@ static ssize_t px3315_em_read(struct device *dev,
 	struct px3315_data *data = i2c_get_clientdata(client);
 	int i;
 	u8 tmp;
-	
+
 	for (i = 0; i < ARRAY_SIZE(data->reg_cache); i++)
 	{
 		mutex_lock(&data->lock);
@@ -760,8 +763,8 @@ static DEVICE_ATTR(em, S_IRUGO | S_IWUSR | S_IWGRP,
 				   px3315_em_read, px3315_em_write);
 #endif
 
-static ssize_t proximity_enable_show(struct device *dev, 
-		struct device_attribute *attr, 
+static ssize_t proximity_enable_show(struct device *dev,
+		struct device_attribute *attr,
 		char *buf)
 {
 	struct input_dev *input = to_input_dev(dev);
@@ -769,8 +772,8 @@ static ssize_t proximity_enable_show(struct device *dev,
 	return sprintf(buf, "%d\n", (px3315_get_mode(data->client)) ? 1 : 0);
 }
 
-static ssize_t proximity_enable_store(struct device *dev, 
-		struct device_attribute *attr, 
+static ssize_t proximity_enable_store(struct device *dev,
+		struct device_attribute *attr,
 		const char *buf, size_t size)
 {
 	struct input_dev *input = to_input_dev(dev);
@@ -784,9 +787,8 @@ static ssize_t proximity_enable_store(struct device *dev,
 			pr_err("%s: proximity_open_offset() failed\n",
 				__func__);
 		else {
-			
-			if (data->cal_result==1) {	
-				px3315_set_calib(data->client, 
+			if (data->cal_result==1) {
+				px3315_set_calib(data->client,
 					data->offset_value);
 				px3315_set_plthres(data->client,
 					PX_PROX_CAL_THREL);
@@ -795,6 +797,8 @@ static ssize_t proximity_enable_store(struct device *dev,
 			}
 
 		}
+		input_report_abs(data->input, ABS_DISTANCE, 1);
+		input_sync(data->input);
 		px3315_set_mode(data->client, 2);
 		enable_irq(data->irq);
 		enable_irq_wake(data->irq);
@@ -874,14 +878,14 @@ static void px3315_work_func(struct work_struct *work)
 	data->avg[0] = min;
 	data->avg[1] = avg;
 	data->avg[2] = max;
-	
+
 }
 
 static ssize_t proximity_avg_show(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
 	struct px3315_data *data = dev_get_drvdata(dev);
-	
+
 	return sprintf(buf, "%d,%d,%d\n", data->avg[0], data->avg[1],
 				data->avg[2]);
 }
@@ -1087,7 +1091,7 @@ static int px3315_init_client(struct i2c_client *client)
 
 	px3315_set_mode(client, 2); //set mode to PS + IR function active
 	msleep(20);
-	
+
 	return 0;
 }
 
@@ -1096,19 +1100,16 @@ static irqreturn_t px3315_irq(int irq, void *data_)
 	struct px3315_data *data = data_;
 	u8 int_stat;
 	int pVal;
- 
+
 	mutex_lock(&data->lock);
 	int_stat = px3315_get_intstatus(data->client);
 
-	// PX int
-	if (int_stat & PX3315_INT_PMASK)
-	{
-		schedule_work(&data->work_ptime);
-		pVal = px3315_get_object(data->client,1);
-		printk("%s\n", pVal ? "obj near":"obj far");
-		input_report_abs(data->input, ABS_DISTANCE, !pVal);
-		input_sync(data->input);
-	}
+	pVal = px3315_get_object(data->client,1);
+	pr_info("%s\n", pVal ? "obj near":"obj far");
+	input_report_abs(data->input, ABS_DISTANCE, !pVal);
+	input_sync(data->input);
+
+	schedule_work(&data->work_ptime);
 
 	mutex_unlock(&data->lock);
 	return IRQ_HANDLED;
@@ -1121,22 +1122,28 @@ static int __devinit px3315_probe(struct i2c_client *client,
 	struct px3315_platform_data *pdata = client->dev.platform_data;
 	struct px3315_data *data;
 	struct device *proximity_device = NULL;
-	int err = 0;
+
 	int ret = 0;
-	int error = 0;
+
+	pr_info("%s is called\n", __func__);
+
 	this_client = client;
 
-	printk("%s\n", __func__);
-
-	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE))
-		return -EIO;
+	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE)) {
+		pr_err("%s: i2c functionality check failed!\n", __func__);
+		ret = -ENODEV;
+		return ret;
+	}
 
 	data = kzalloc(sizeof(struct px3315_data), GFP_KERNEL);
-	if (!data)
-		return -ENOMEM;
+	if (!data) {
+		pr_err("%s: failed to alloc memory for module data\n", __func__);
+		ret = -ENOMEM;
+		goto exit_kfree;
+	}
 
 	px3315_power.regulator_vdd = NULL;
-	px3315_power.regulator_vio = NULL;	
+	px3315_power.regulator_vio = NULL;
 	px3315_power.regulator_vdd = regulator_get(&client->dev, "vdd-proxi");
 	if (IS_ERR(px3315_power.regulator_vdd)) {
 		ret = PTR_ERR(px3315_power.regulator_vdd);
@@ -1165,52 +1172,59 @@ static int __devinit px3315_probe(struct i2c_client *client,
 	/* INT Settings */
 	data->irq = gpio_to_irq(data->gpio);
 	if (data->irq < 0) {
-		err = data->irq;
+		ret = data->irq;
 		pr_err("%s: Failed to convert GPIO %u to IRQ [errno=%d]",
-				__func__, data->gpio, err);
-		goto exit_kfree;
+				__func__, data->gpio, ret);
+		goto err_setup_regulator;
 	}
-	err = request_threaded_irq(data->irq, NULL, px3315_irq,
-				 IRQF_TRIGGER_FALLING,
-				 "px3315", data);
-	if (err) {
-		pr_err("%s: request_irq failed for taos\n", __func__);
-		goto exit_kfree;
-	}
-	disable_irq(data->irq);
+
 	INIT_WORK(&data->work_ptime, px3315_work_func);
 
 	/* initialize the PX3315 chip */
-	err = px3315_init_client(client);
-	if (err)
-		goto exit_kfree;
+	ret = px3315_init_client(client);
+	if (ret < 0) {
+		pr_err("%s : Failed to init client\n", __func__);
+		goto err_setup_regulator;
+	}
 
 	/* create input device */
-	err = px3315_input_init(data);
-	if (err)
-		goto exit_kfree;
-
-	/* register sysfs hooks */
-	err = sysfs_create_group(&data->input->dev.kobj, &px3315_attr_group);
-	if (err)
-		goto exit_input;
-
-	error = sensors_register(proximity_device, data, proximity_attrs,
-						"proximity_sensor");
-	if (error < 0) {
-		pr_err("%s: could not register proximity sensor device(%d).\n",
-					__func__, error);
+	ret = px3315_input_init(data);
+	if (ret < 0) {
+		pr_err("%s : Failed to init input device\n", __func__);
 		goto exit_input;
 	}
+
+	/* register sysfs hooks */
+	ret = sysfs_create_group(&data->input->dev.kobj, &px3315_attr_group);
+	if (ret < 0) {
+		pr_err("%s : could not create sysfs group\n", __func__);
+		goto exit_input;
+	}
+
+	ret = sensors_register(proximity_device, data, proximity_attrs,
+						"proximity_sensor");
+	if (ret < 0) {
+		pr_err("%s: could not register proximity sensor device\n", __func__);
+		goto exit_input;
+	}
+
+    /* IRQ Register */
+	ret = request_threaded_irq(data->irq, NULL, px3315_irq,
+				 IRQF_TRIGGER_FALLING,
+				 "px3315", data);
+	if (ret < 0) {
+		pr_err("%s: could not request threaded irq\n", __func__);
+		goto exit_input;
+	}
+
+    /*irq_set_irq_wake(data->irq, 1);*/
+	disable_irq(data->irq);
 
 	dev_info(&client->dev, "px3315 driver version %s enabled\n", DRIVER_VERSION);
 	return 0;
 
 exit_input:
 	px3315_input_fini(data);
-
-exit_kfree:
-	kfree(data);
 
 err_setup_regulator:
 	if (px3315_power.regulator_vdd) {
@@ -1222,8 +1236,10 @@ err_setup_regulator:
 		regulator_disable(px3315_power.regulator_vio);
 		regulator_put(px3315_power.regulator_vio);
 	}
-
-	return err;
+exit_kfree:
+	kfree(data);
+	pr_info("%s : failed. (errno = %d)\n", __func__, ret);
+	return ret;
 }
 
 static int __devexit px3315_remove(struct i2c_client *client)
@@ -1254,7 +1270,7 @@ static int __devexit px3315_remove(struct i2c_client *client)
 #define px3315_resume		NULL
 
 static const struct i2c_device_id px3315_id[] = {
-	{ "px3315", 0 },
+	{ PX3315C_DEV_NAME, 0 },
 	{}
 };
 MODULE_DEVICE_TABLE(i2c, px3315_id);

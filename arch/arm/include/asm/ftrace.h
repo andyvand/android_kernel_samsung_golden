@@ -40,17 +40,12 @@ extern void ftrace_call_old(void);
  * have to be marked with __notrace.  So for now just depend on
  * !CONFIG_ARM_UNWIND.
  */
-
-void *return_address(unsigned int);
-
-#else
-
-extern inline void *return_address(unsigned int level)
-{
-	return NULL;
-}
-
-#endif
+extern void *return_address(unsigned int);
+#else /* Don't use return_address */
+#ifndef return_address
+#define return_address(x) NULL
+#endif /* return_address */
+#endif /* FP & Unwind */
 
 #define HAVE_ARCH_CALLER_ADDR
 

@@ -58,7 +58,7 @@ struct sec_jack_platform_data {
 	char 	*regulator_mic_source;
 	bool	det_active_high;
 	bool	send_end_active_high;
-#ifdef CONFIG_MACH_SEC_GOLDEN
+#ifdef CONFIG_SAMSUNG_JACK_SW_WATERPROOF
 	int     ear_reselector_zone;
 #endif
 };

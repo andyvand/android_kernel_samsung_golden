@@ -48,7 +48,7 @@
 #include "tmd2672_reg.h"
 
 #define OFFSET_FILE_PATH	"/efs/prox_cal"
-#define TAOS_CHIP_DEV_NAME		"TMD26723"
+#define TAOS_CHIP_DEV_NAME		"TMD2672X"
 #define OFFSET_ARRAY_LENGTH		10
 
 struct taos_data {
@@ -113,6 +113,18 @@ static int opt_i2c_write(struct taos_data *taos, u8 reg, u8 * val)
 	return err;
 }
 
+static int opt_i2c_read(struct taos_data *taos, u8 reg , u8 *val)
+{
+	int ret;
+
+	i2c_smbus_write_byte(taos->client, (CMD_REG | reg));
+
+	ret = i2c_smbus_read_byte(taos->client);
+	*val = ret;
+
+	return ret;
+}
+
 static int taos_poweron(struct taos_data *taos)
 {
 	func_dbg();
@@ -160,12 +172,17 @@ static void taos_work_func_prox(struct work_struct *work)
 						(CMD_REG | PRX_MAXTHRESHLO));
 	threshold_low = i2c_smbus_read_word_data(taos->client,
 						(CMD_REG | PRX_MINTHRESHLO));
-	printk(KERN_INFO "[PROXIMITY] %s: adc(0x%x), high(0x%x), low(0x%x)\n",
-			__func__, adc_data, threshold_high, threshold_low);
-
+	printk(KERN_INFO "%s: ADC: %d, H: %d, L: %d\n, threshold_high: %d",
+			__func__, adc_data, threshold_high, threshold_low,
+			taos->threshold_high);
 	if ((threshold_high == (PRX_THRSH_HI_PARAM))
 			 && (adc_data >= (PRX_THRSH_HI_PARAM))) {
+		pr_info("threshold_high=PRX_THRSH_HI_PARAM\n");
 		taos->proximity_value = ON;
+		input_report_abs(taos->proximity_input_dev, ABS_DISTANCE,
+				!taos->proximity_value);
+		input_sync(taos->proximity_input_dev);
+
 		prox_int_thresh[0] = (PRX_THRSH_LO_PARAM) & 0xFF;
 		prox_int_thresh[1] = (PRX_THRSH_LO_PARAM >> 8) & 0xFF;
 		prox_int_thresh[2] = (0xFFFF) & 0xFF;
@@ -173,30 +190,48 @@ static void taos_work_func_prox(struct work_struct *work)
 		for (i = 0; i < 4; i++)
 			opt_i2c_write(taos, (CMD_REG | (PRX_MINTHRESHLO + i)),
 				       &prox_int_thresh[i]);
-	} else if ((threshold_high == (0xFFFF))
-					&& (adc_data <= (PRX_THRSH_LO_PARAM))) {
+		} else if ((threshold_high == (taos->threshold_high))
+			&& (adc_data >= (taos->threshold_high))) {
+			pr_info("threshold_high=taos->threshold_high\n");
+			taos->proximity_value = ON;
+		input_report_abs(taos->proximity_input_dev, ABS_DISTANCE,
+				!taos->proximity_value);
+		input_sync(taos->proximity_input_dev);
+
+		prox_int_thresh[0] = (taos->threshold_low) & 0xFF;
+		prox_int_thresh[1] = (taos->threshold_low >> 8) & 0xFF;
+		prox_int_thresh[2] = (0xFFFF) & 0xFF;
+		prox_int_thresh[3] = (0xFFFF >> 8) & 0xFF;
+		for (i = 0; i < 4; i++)
+			opt_i2c_write(taos, (CMD_REG|(PRX_MINTHRESHLO + i)),
+					&prox_int_thresh[i]);
+	} else if ((threshold_high == (0xFFFF)) &&
+		(adc_data <= (taos->threshold_low))) {
+		pr_info("threshold_high=0xFFFF\n");
 		taos->proximity_value = OFF;
+		input_report_abs(taos->proximity_input_dev,
+			ABS_DISTANCE, !taos->proximity_value);
+		input_sync(taos->proximity_input_dev);
+		pr_err("[%s] prox value = %d\n", __func__,
+			!taos->proximity_value);
 		prox_int_thresh[0] = (0x0000) & 0xFF;
 		prox_int_thresh[1] = (0x0000 >> 8) & 0xFF;
-		prox_int_thresh[2] = (PRX_THRSH_HI_PARAM) & 0xFF;
-		prox_int_thresh[3] = (PRX_THRSH_HI_PARAM >> 8) & 0xFF;
+		prox_int_thresh[2] = (taos->threshold_high) & 0xFF;
+		prox_int_thresh[3] = (taos->threshold_high >> 8) & 0xFF;
 		for (i = 0; i < 4; i++)
-			opt_i2c_write(taos, (CMD_REG | (PRX_MINTHRESHLO + i)),
-				       &prox_int_thresh[i]);
-	} else
+			opt_i2c_write(taos, (CMD_REG|(PRX_MINTHRESHLO + i)),
+			&prox_int_thresh[i]);
+	}  else
 		pr_err("%s: Not Common Case!", __func__);
 
-	input_report_abs(taos->proximity_input_dev, ABS_DISTANCE,
-			!taos->proximity_value);
-	input_sync(taos->proximity_input_dev);
 	mdelay(1);
 
     /* reset Interrupt pin */
     /* to active Interrupt, TMD2771x Interuupt pin shoud be reset. */
 	i2c_smbus_write_byte(taos->client, (CMD_REG
 			| CMD_SPL_FN | CMD_PROX_INTCLR));
-	
-    /* enable INT */
+
+	/* enable INT */
 	enable_irq(taos->irq);
 }
 
@@ -314,17 +349,10 @@ void taos_chip_on(struct taos_data *taos)
 		fail_num++;
 	}
 
-	value = PRX_GAIN_OFFSET;
-	err = opt_i2c_write(taos, (CMD_REG | PRX_OFFSET), &value);
-	if (err < 0) {
-		pr_err("%s: prox gain reg failed\n", __func__);
-		fail_num++;
-	}
-
-	prox_int_thresh[0] = (0x0000) & 0xFF;
-	prox_int_thresh[1] = (0x0000 >> 8) & 0xFF;
-	prox_int_thresh[2] = (PRX_THRSH_HI_PARAM) & 0xFF;
-	prox_int_thresh[3] = (PRX_THRSH_HI_PARAM >> 8) & 0xFF;
+	prox_int_thresh[0] = 0;
+	prox_int_thresh[1] = 0;
+	prox_int_thresh[2] = (taos->threshold_high) & 0xFF;
+	prox_int_thresh[3] = (taos->threshold_high >> 8) & 0xFF;
 
 	for (i = 0; i < 4; i++) {
 		err = opt_i2c_write(taos, (CMD_REG | (PRX_MINTHRESHLO + i)),
@@ -439,8 +467,8 @@ static ssize_t proximity_enable_store(struct device *dev,
 			pr_err("%s: hi= %d, low= %d, off= %d\n", __func__,
 				taos->threshold_high, taos->threshold_low,
 				taos->offset_value);
-			
-		i2c_smbus_write_byte(taos->client,
+
+			i2c_smbus_write_byte(taos->client,
 			(CMD_REG | CMD_SPL_FN
 				| CMD_PROX_INTCLR));
 		taos_on(taos);
@@ -697,7 +725,7 @@ static ssize_t proximity_cal_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
 	struct taos_data *taos = dev_get_drvdata(dev);
-	int p_offset = 0;
+	u8 p_offset = 0;
 
 	msleep(20);
 	p_offset = i2c_smbus_read_byte_data(taos->client,
@@ -730,13 +758,11 @@ static ssize_t proximity_thresh_store(struct device *dev,
 	int err = 0;
 
 	err = kstrtoint(buf, 10, &thresh_value);
-	if (err < 0) {
-		pr_err("%s, kstrtoint failed.", __func__);
-	} else {
-		taos->threshold_high = thresh_value;
-		taos_thresh_set(taos);
-		msleep(20);
-	}
+
+	taos->threshold_high = thresh_value;
+	taos_thresh_set(taos);
+	msleep(20);
+
 	return size;
 }
 
@@ -826,6 +852,22 @@ static struct attribute_group proximity_attribute_group = {
 	.attrs = proximity_sysfs_attrs,
 };
 
+static int taos_get_initial_offset(struct taos_data *taos)
+{
+	int ret = 0;
+	u8 p_offset = 0;
+
+	taos_chip_on(taos);
+
+	msleep(20);
+	ret = opt_i2c_read(taos, PRX_OFFSET, &p_offset);
+	pr_err("%s: initial offset = %d\n", __func__, p_offset);
+
+	taos_chip_off(taos);
+
+	return p_offset;
+}
+
 static int taos_opt_probe(struct i2c_client *client,
 				  const struct i2c_device_id *id)
 {
@@ -859,6 +901,10 @@ static int taos_opt_probe(struct i2c_client *client,
 	taos->alsout = pdata->alsout;
 	taos->client = client;
 	i2c_set_clientdata(client, taos);
+	taos->threshold_high = PRX_THRSH_HI_PARAM;
+	taos->threshold_low = PRX_THRSH_LO_PARAM;
+	taos->initial_offset = taos_get_initial_offset(taos);
+	taos->offset_value = taos->initial_offset;
 
 	if (pdata->hw_setup) {
 		err = pdata->hw_setup();
@@ -914,8 +960,8 @@ static int taos_opt_probe(struct i2c_client *client,
 			"prx_wake_lock");
 
 	mutex_init(&taos->prox_mutex);
-	
-	 /* allocate proximity input_device */
+
+	/* allocate proximity input_device */
 	input_dev = input_allocate_device();
 	if (input_dev == NULL) {
 		pr_err("%s: Failed to allocate input device\n", __func__);
@@ -1005,7 +1051,7 @@ err_setup_regulator:
 	if (taos->regulator_vio) {
 		regulator_disable(taos->regulator_vio);
 		regulator_put(taos->regulator_vio);
-	}	
+	}
 exit_kfree:
 	kfree(taos);
 exit:

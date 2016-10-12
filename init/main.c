@@ -68,6 +68,7 @@
 #include <linux/shmem_fs.h>
 #include <linux/slab.h>
 #include <linux/perf_event.h>
+#include <linux/random.h>
 #include <linux/boottime.h>
 #include <linux/pasr.h>
 
@@ -572,9 +573,6 @@ asmlinkage void __init start_kernel(void)
 	early_boot_irqs_disabled = false;
 	local_irq_enable();
 
-	/* Interrupts are enabled now so all GFP allocations are safe. */
-	gfp_allowed_mask = __GFP_BITS_MASK;
-
 	kmem_cache_init_late();
 
 #ifdef CONFIG_PASR
@@ -654,7 +652,7 @@ asmlinkage void __init start_kernel(void)
 			printk(KERN_NOTICE "[LOG][ERROR] %s() log_buf_base = 0x%p\n", __FUNCTION__, log_buf_base);
 		else {
 			printk(KERN_NOTICE "[LOG] %s() log_buf_base = 0x%p, size=%ld\n", __FUNCTION__, 
-				log_buf_base, bank->size);
+				(long unsigned int)log_buf_base, bank->size);
 
 			/* irq log buffer initialize */
 			if (LOG_IRQ_BUF_SIZE < (log_buf_irq_entry_size*(log_buf_irq_entry_count+2))) {
@@ -787,6 +785,7 @@ static void __init do_basic_setup(void)
 	init_irq_proc();
 	do_ctors();
 	do_initcalls();
+	random_int_secret_init();
 }
 
 static void __init do_pre_smp_initcalls(void)
@@ -851,6 +850,10 @@ static int __init kernel_init(void * unused)
 	 * Wait until kthreadd is all set-up.
 	 */
 	wait_for_completion(&kthreadd_done);
+
+	/* Now the scheduler is fully set up and can do blocking allocations */
+	gfp_allowed_mask = __GFP_BITS_MASK;
+
 	/*
 	 * init can allocate pages on any node
 	 */

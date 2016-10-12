@@ -9,9 +9,11 @@
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
+#include <linux/interrupt.h>
 #include <linux/platform_device.h>
 #include <linux/amba/bus.h>
 #include <linux/amba/pl022.h>
+#include <linux/amba/serial.h>
 #include <linux/interrupt.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/spi_gpio.h>
@@ -33,8 +35,9 @@
 #ifdef CONFIG_USB_ANDROID
 #include <linux/usb/android_composite.h>
 #endif
+//#include <linux/input/mxt224e.h>
 #include <linux/gpio_keys.h>
-#include <linux/cypress_touchkey.h>
+#include <linux/input/cypress_touchkey.h>
 #include <linux/projector.h>
 
 #include <net/bluetooth/bluetooth.h>
@@ -48,25 +51,23 @@
 #include <asm/mach-types.h>
 
 #include <plat/pincfg.h>
-#include <plat/ske.h>
 #include <plat/i2c.h>
 #include <plat/ste_dma40.h>
 
-#include <mach/hardware.h>
 #include <mach/devices.h>
-#include <mach/ste_audio_io.h>
-#ifdef CONFIG_PROXIMITY_GP2A
+#ifdef CONFIG_LIGHT_PROX_GP2A
 #include <mach/gp2a.h>
 #endif
 #ifdef CONFIG_PROXIMITY_GP2A030
 #include <mach/gp2ap020.h>
 #endif
-#include <linux/yas.h>
+#include <linux/regulator/consumer.h>	/* to enable/disable regulator line */
 #include <linux/mpu.h>
 #include <mach/mpu60x0.h>
 #include <linux/cpuidle-dbx500.h>
 #include <mach/setup.h>
 #include <mach/isa1200.h>
+#include <linux/yas.h>
 #include <mach/crypto-ux500.h>
 #include <mach/pm.h>
 #include <mach/reboot_reasons.h>
@@ -78,12 +79,15 @@
 #include <mach/mloader-dbx500.h>
 #endif
 
+#ifdef CONFIG_BT_BCM4330
+#include "board-bluetooth-bcm4330.h"
+#endif
 #include <sound/ux500_ab8500_ext.h>
 
 #include "devices-db8500.h"
 #include "board-gavini-regulators.h"
-#include "pins-db8500.h"
 #include "pins.h"
+#include "pins-db8500.h"
 #include "cpu-db8500.h"
 #include "board-mop500.h"	/* using some generic functions defined here */
 #include "board-sec-bm.h"
@@ -112,7 +116,6 @@
 #include <linux/leds.h>
 
 unsigned int board_id;
-
 unsigned int sec_debug_settings;
 int jig_smd = 1;
 EXPORT_SYMBOL(jig_smd);
@@ -122,12 +125,7 @@ EXPORT_SYMBOL(is_cable_attached);
 struct device *gps_dev = NULL;
 EXPORT_SYMBOL(gps_dev);
 
-#define GPIO_SET 1
-#define GPIO_RESET 0
-
-
 #ifdef CONFIG_ANDROID_RAM_CONSOLE
-
 static struct resource ram_console_resource = {
 	.name = "ram_console",
 	.flags = IORESOURCE_MEM,
@@ -156,7 +154,6 @@ static int __init ram_console_setup(char *p)
 __setup("mem_ram_console=", ram_console_setup);
 
 #endif // CONFIG_ANDROID_RAM_CONSOLE
-
 #if defined(CONFIG_KEYBOARD_CYPRESS_TOUCH)
 static struct cypress_touchkey_platform_data  cypress_touchkey_pdata = {
 	.gpio_scl = TOUCHKEY_SCL_GAVINI_R0_0,
@@ -176,7 +173,6 @@ static struct projector_dpp2601_platform_data  projector_dpp2601_pdata = {
 	.gpio_prj_en = PRJ_EN_GAVINI_R0_0,
 	.gpio_parkz = PARKZ_GAVINI_R0_0,
 	.gpio_prj_led_en = PRJ_LED_EN_GAVINI_R0_1,
-	.gpio_en_lcd = EN_LCD_GAVINI_R0_0
 };
 
 #if defined(CONFIG_PROXIMITY_GP2A030)
@@ -191,12 +187,10 @@ struct yas_platform_data yas_data = {
 
 #if defined(CONFIG_MPU_SENSORS_MPU3050)
 
-#define SENSOR_MPU_NAME "mpu3050"
-
 static struct mpu3050_platform_data mpu_data = {
 	.int_config  = 0x12,
 	.orientation = {
-		0,  -1,  0,
+		0,  1,  0,
 		1,  0,  0,
 		0,  0,  1
 	},
@@ -207,8 +201,8 @@ static struct mpu3050_platform_data mpu_data = {
 		.bus         = EXT_SLAVE_BUS_SECONDARY,
 		.address     = 0x18,
 		.orientation = {
-		   -1,  0,  0,
-			0, -1,  0,
+			-1,  0,  0,
+			0,  -1,  0,
 			0,  0,  1
 		},
 	},
@@ -229,19 +223,19 @@ static struct mpu3050_platform_data mpu_data = {
 static struct mpu3050_platform_data mpu_data_gavini_r00 = {
 	.int_config  = 0x12,
 	.orientation = {
-		0,  -1,  0,
+		0,  1,  0,
 		1,  0,  0,
 		0,  0,  1
 	},
 	/* accel */
 	.accel = {
 		.get_slave_descr = get_accel_slave_descr,
-		.adapt_num   = 0,
+		.adapt_num   = 8,
 		.bus         = EXT_SLAVE_BUS_SECONDARY,
 		.address     = 0x18,
 		.orientation = {
-		   -1,  0,  0,
-			0, -1,  0,
+			-1,  0,  0,
+			0,  -1,  0,
 			0,  0,  1
 		},
 	},
@@ -262,7 +256,7 @@ static struct mpu3050_platform_data mpu_data_gavini_r00 = {
 static struct mpu3050_platform_data mpu_data_gavini_r01 = {
 	.int_config  = 0x12,
 	.orientation = {
-		0,  -1,  0,
+		0,  1,  0,
 		1,  0,  0,
 		0,  0,  1
 	},
@@ -274,7 +268,7 @@ static struct mpu3050_platform_data mpu_data_gavini_r01 = {
 		.address     = 0x18,
 		.orientation = {
 			0,  1,  0,
-		   -1,  0,  0,
+			-1,  0,  0,
 			0,  0,  1
 		},
 	},
@@ -291,6 +285,7 @@ static struct mpu3050_platform_data mpu_data_gavini_r01 = {
 		},
 	},
 };
+
 #endif
 
 #if defined(CONFIG_PROXIMITY_GP2A030)
@@ -300,26 +295,32 @@ static void gp2a_power_on(int onoff)
 }
 #endif
 
-#if defined(CONFIG_PROXIMITY_GP2A)
-
+#if defined(CONFIG_LIGHT_PROX_GP2A)
 /* -------------------------------------------------------------------------
  * GP2A PROXIMITY SENSOR PLATFORM-SPECIFIC CODE AND DATA
  * ------------------------------------------------------------------------- */
-static int __init gp2a_setup(void);
+struct regulator *gp2a_vcc_reg;
+struct regulator *gp2a_vio_reg;
 
-static struct gp2a_platform_data gp2a_plat_data __initdata = {
+static int __init gp2a_setup( struct device * dev);
+static void gp2a_pwr(bool on);
+
+static struct gp2a_platform_data gp2a_plat_data = {
 	.ps_vout_gpio = PS_VOUT_GAVINI_R0_0,
 	.hw_setup = gp2a_setup,
+	.hw_pwr = gp2a_pwr,
+	.als_supported = true,
 	.alsout = ADC_AUX2,
 };
 
-static int __init gp2a_setup(void)
+static int __init gp2a_setup( struct device * dev)
 {
 	int err;
 
 	/* Configure the GPIO for the interrupt */
 	err = gpio_request(gp2a_plat_data.ps_vout_gpio, "PS_VOUT");
-	if (err < 0)	{
+	if (err < 0)
+	{
 		pr_err("PS_VOUT: failed to request GPIO %d,"
 			" err %d\n", gp2a_plat_data.ps_vout_gpio, err);
 
@@ -336,6 +337,23 @@ static int __init gp2a_setup(void)
 		goto err2;
 	}
 
+
+	gp2a_vcc_reg = regulator_get(dev, "v-prox-vcc");
+	if (IS_ERR(gp2a_vcc_reg))
+	{
+                pr_err("[%s] Failed to get v-prox-vcc regulator for gp2a\n", __func__);
+		err = PTR_ERR(gp2a_vcc_reg);
+		goto err2;
+	}
+
+	gp2a_vio_reg = regulator_get(dev, "v-prox-vio");
+	if (IS_ERR(gp2a_vio_reg))
+	{
+		pr_err("[%s] Failed to get v-prox-vio regulator for gp2a\n", __func__);
+		err = PTR_ERR(gp2a_vio_reg);
+		gp2a_vio_reg = NULL;
+		goto err2;
+	}
 	return 0;
 
 err2:
@@ -344,8 +362,23 @@ err1:
 	return err;
 }
 
-#endif
+static void gp2a_pwr(bool on)
+{
+	if (gp2a_vcc_reg) {
+		if (on)
+			regulator_enable(gp2a_vcc_reg);
+		else
+			regulator_disable(gp2a_vcc_reg);
+	}
+	if (gp2a_vio_reg) {
+		if (on)
+			regulator_enable(gp2a_vio_reg);
+		else
+			regulator_disable(gp2a_vio_reg);
+	}
+}
 
+#endif
 #if defined(CONFIG_BACKLIGHT_KTD259)
 /* The following table is used to convert brightness level to the LED
     Current Ratio expressed as (full current) /(n * 32).
@@ -424,8 +457,6 @@ static struct platform_device gavini_backlight_device_r0_3 = {
 };
 
 #endif
-
-
 #if defined(CONFIG_IMMERSION_TSPDRV)
 /* --------------------------------------------------------------------
 * Immersion tspdrv and ISA1200 platform specific data
@@ -482,39 +513,18 @@ hwen_gpio_req_failed:
 }
 #endif
 
-static DEFINE_SPINLOCK(dock_gpio_lock);
-static bool fsa880_dock_gpio;
-static bool sec_jack_dock_gpio;
-static void set_shared_dock_gpio(void)
-{
-	/* earjack is removed && dock is connected */
-	if (!sec_jack_dock_gpio && fsa880_dock_gpio)
-		gpio_direction_output(EARSPK_SEL_GAVINI_R0_0_C, 1);
-	else
-		gpio_direction_output(EARSPK_SEL_GAVINI_R0_0_C, 0);
-}
-
-void fsa880_set_dock_gpio(bool on)
-{
-	unsigned long flags;
-	spin_lock_irqsave(&dock_gpio_lock, flags);
-	fsa880_dock_gpio = on;
-	set_shared_dock_gpio();
-	spin_unlock_irqrestore(&dock_gpio_lock, flags);
-}
-
 #if defined(CONFIG_USB_SWITCHER)
 static void tsu6111_reset(void)
 {
 	/* Hold SCL&SDA Low more than 30ms */
-	gpio_direction_output(GAVINI_GPIO_MUS_SCL, 0);
-	gpio_direction_output(GAVINI_GPIO_MUS_SDA, 0);
+	gpio_direction_output(MUS_SCL_R0_0, 0);
+	gpio_direction_output(MUS_SDA_R0_0, 0);
 
 	mdelay(35);
 
 	/*Make SCL&SDA High again*/
-	gpio_direction_output(GAVINI_GPIO_MUS_SCL, 1);
-	gpio_direction_output(GAVINI_GPIO_MUS_SDA, 1);
+	gpio_direction_output(MUS_SCL_R0_0, 1);
+	gpio_direction_output(MUS_SDA_R0_0, 1);
 
 	/* GPIOs will be set back to normal state by
 	I2C driver during next transfer */
@@ -522,46 +532,74 @@ static void tsu6111_reset(void)
 
 static struct usb_switch fsa880_data =	{
 		.name					=	"FSA880",
-		.id					=	0x0	,
+		.id	 				=	0x0	,
 		.id_mask				=	0xff	,
 		.control_register_default		=	0x05	,
-		.control_register_inital_value		=	0x1e	,
-		.smd_gpio				= 0xFFFF,	/* not for Gavini */
-		.charger_detect_gpio			=	0xffff	, /*no charger detect gpio for this device*/
-		.irq_gpio				= JACK_NINT_GAVINI_R0_0,
+		.control_register_inital_value  	=	0x1e	,
+		.connection_changed_interrupt_gpio	=	95	,
+		.charger_detect_gpio			=	0xffff 	, /*no charger detect gpio for this device*/
 		.valid_device_register_1_bits		=	0x74	,
-		.valid_device_register_2_bits		=	0x8F	,
+		.valid_device_register_2_bits		=	0x8F	,	
 		.valid_registers			=	{0,1,1,1,1,0,0,1,0,0,1,1,0,0,0,0, 0, 0, 0, 1, 1  },
-		.set_dock_gpio			=	fsa880_set_dock_gpio,
-		.reset_cb				= tsu6111_reset,
 };
 #endif
 
 #if defined(CONFIG_TOUCHSCREEN_ATMEL_MXT224E)
-/*atmel_mxt224E*/
-static void mxt224_power_on(void)
+/*static struct charging_status_callbacks {
+	void	(*tsp_set_charging_cable) (int type);
+} charging_cbs;
+*/
+static void mxt224_power_con(bool on)
 {
-	gpio_direction_output(TSP_LDO_ON1_GAVINI_R0_0, 1);
-	mdelay(70);
-	printk("mxt224_power_on is finished\n");
+	if (on) {
+		gpio_direction_output(TSP_LDO_ON1_GAVINI_R0_0, 1);
+		mdelay(70);
+	} else {
+		gpio_direction_output(TSP_LDO_ON1_GAVINI_R0_0, 0);
+	}
+
+	printk(KERN_INFO "%s is finished.(%s)\n",
+						__func__, (on) ? "on" : "off");
 }
 
-static void mxt224_power_off(void)
+#ifdef CONFIG_USB_SWITCHER
+/*
+static struct notifier_block mxt224_usb_nb;
+
+static int mxt224_usb_switcher_notify(struct notifier_block *self, unsigned long action, void *dev)
 {
-	gpio_direction_output(TSP_LDO_ON1_GAVINI_R0_0, 0);
-
-	printk("mxt224_power_off is finished\n");
+	if (charging_cbs.tsp_set_charging_cable) {
+		if (action & USB_SWITCH_CONNECTION_EVENT)
+			charging_cbs.tsp_set_charging_cable(true);
+		else if (action & USB_SWITCH_DISCONNECTION_EVENT)
+			charging_cbs.tsp_set_charging_cable(false);
+	}
+	return 0;
 }
+*/
+#endif
 
-//static void mxt224_register_callback(void *function)
-//{
-//	printk("mxt224_register_callback\n");
-//	charging_cbs.tsp_set_charging_cable = function;
-//}
+static void mxt224_register_callback(void *function)
+{
+/*
+	printk(KERN_INFO "mxt224_register_callback\n");
+
+	charging_cbs.tsp_set_charging_cable = function;
+*/
+#ifdef CONFIG_USB_SWITCHER
+	/*
+	mxt224_usb_nb.notifier_call = mxt224_usb_switcher_notify;
+	usb_switch_register_notify(&mxt224_usb_nb);
+	*/
+#else
+	/* TBD */
+#endif
+}
 
 static void mxt224_read_ta_status(bool *ta_status)
 {
 	*ta_status = is_cable_attached;
+	pr_debug("[TSP]mxt224_ta_status = %d\n", *ta_status);
 }
 
 #define MXT224_MAX_MT_FINGERS		10
@@ -569,8 +607,8 @@ static void mxt224_read_ta_status(bool *ta_status)
 /*
 	Configuration for MXT224
 */
-#define MXT224_THRESHOLD_BATT		40
-#define MXT224_THRESHOLD_CHRG		70
+#define MXT224_THRESHOLD_BATT		50
+#define MXT224_THRESHOLD_CHRG		40
 #define MXT224_ATCHCALST		9
 #define MXT224_ATCHCALTHR		30
 
@@ -608,10 +646,10 @@ static const u8 *mxt224_config[] = {
 /*
 	Configuration for MXT224-E
 */
-#define MXT224E_THRESHOLD_BATT		50
-#define MXT224E_THRESHOLD_CHRG		40
-#define MXT224E_CALCFG_BATT		64
-#define MXT224E_CALCFG_CHRG		82
+#define MXT224E_THRESHOLD_BATT		25
+#define MXT224E_THRESHOLD_CHRG		25
+#define MXT224E_CALCFG_BATT		0x72 //114
+#define MXT224E_CALCFG_CHRG		0x72 
 #define MXT224E_ATCHFRCCALTHR_NORMAL		40
 #define MXT224E_ATCHFRCCALRATIO_NORMAL		55
 
@@ -628,9 +666,10 @@ static u8 t9_config_e[] = {TOUCH_MULTITOUCHSCREEN_T9,
 				223, 1, 10, 10, 10, 10, 143, 40, 143, 80, 18, 15, 50, 50, 0};
 #else
 static u8 t9_config_e[] = {TOUCH_MULTITOUCHSCREEN_T9,
-				139, 0, 0, 19, 11, 0, 32, MXT224E_THRESHOLD_BATT, 2, 1, 10, 3, 1,
+				139, 0, 0, 19, 11, 0, 32, MXT224E_THRESHOLD_BATT, 2, 1, 10, 15, 1,
 				46, MXT224_MAX_MT_FINGERS, 5, 40, 10, 31, 3,
-				223, 1, 10, 10, 10, 10, 143, 40, 143, 80, 18, 15, 50, 50, 0};
+				223, 1, 10, 10, 10, 10, 143, 40,
+				143, 80, 18, 15, 50, 50, 0};
 #endif
 
 static u8 t15_config_e[] = {TOUCH_KEYARRAY_T15,
@@ -663,12 +702,13 @@ static u8 t47_config_e[] = {PROCI_STYLUS_T47,
 static u8 t48_config_e[] = {PROCG_NOISESUPPRESSION_T48,
 				3, 132, MXT224E_CALCFG_BATT, 0, 0, 0, 0, 0, 10, 20, 0, 0, 0,
 				6,	6, 0, 0, 64, 4, 64, 10, 0, 20, 5, 0, 38, 0, 5,
-				0, 0, 0, 0, 0, 0, 32, MXT224E_THRESHOLD_BATT, 2, 3, 1, 46, MXT224_MAX_MT_FINGERS, 5, 40, 10, 10,
-				10, 10, 143, 40, 143, 80, 18, 15, 0 };
+				0, 0, 0, 0, 0, 0, 0, MXT224E_THRESHOLD_BATT, 2, 3, 1, 47, MXT224_MAX_MT_FINGERS, 5, 40, 235, 235,
+				10, 10, 170, 50, 143, 80, 18, 15, 0 };
 
 static u8 t48_config_chrg_e[] = {PROCG_NOISESUPPRESSION_T48,
 				3, 132, MXT224E_CALCFG_CHRG, 0, 0, 0, 0, 0, 10, 20, 0, 0, 0,
-				6,	6, 0, 0, 64, 4, 64, 10, 0, 20, 5, 0, 38, 0, 20,
+				6,	6, 0, 0, 64, 4, 64, 10,
+				 0, 20, 5, 0, 38, 0, 20,
 				0, 0, 0, 0, 0, 0, 0, MXT224E_THRESHOLD_CHRG, 2, 5, 2, 47, MXT224_MAX_MT_FINGERS, 5, 40, 235, 235,
 				10, 10, 170, 50, 143, 80, 18, 15, 0 };
 
@@ -697,9 +737,9 @@ static struct mxt224_platform_data mxt224_data = {
 	.config = mxt224_config,
 	.config_e = mxt224e_config,
 	.min_x = 0,
-	.max_x = 479,
+	.max_x = 480,
 	.min_y = 0,
-	.max_y = 799,
+	.max_y = 800,
 	.min_z = 0,
 	.max_z = 255,
 	.min_w = 0,
@@ -716,10 +756,10 @@ static struct mxt224_platform_data mxt224_data = {
 	.atchfrccalratio_e = MXT224E_ATCHFRCCALRATIO_NORMAL,
 	.t48_config_batt_e = t48_config_e,
 	.t48_config_chrg_e = t48_config_chrg_e,
-	.power_on = mxt224_power_on,
-	.power_off = mxt224_power_off,
-	//.register_cb = mxt224_register_callback,
+	.power_con = mxt224_power_con,
+/*	.register_cb = mxt224_register_callback, */
 	.read_ta_status = mxt224_read_ta_status,
+/*	.config_fw_version = "E170S_At_0206", */
 };
 #endif
 
@@ -734,7 +774,7 @@ static struct i2c_board_info __initdata gavini_r0_0_i2c0_devices[] = {
 static struct i2c_board_info __initdata gavini_r0_0_i2c0_devices_rev00c[] = {
 #if defined(CONFIG_MPU_SENSORS_MPU3050)
 	{
-		I2C_BOARD_INFO(MPU_NAME, DEFAULT_MPU_SLAVEADDR),
+		I2C_BOARD_INFO(MPU_DEV, DEFAULT_MPU_SLAVEADDR),
 		.irq = GPIO_TO_IRQ(SENSOR_INT_GAVINI_R0_0),
 		.platform_data = &mpu_data_gavini_r00,
 	},
@@ -744,7 +784,7 @@ static struct i2c_board_info __initdata gavini_r0_0_i2c0_devices_rev00c[] = {
 static struct i2c_board_info __initdata gavini_r0_0_i2c0_devices_rev00d[] = {
 #if defined(CONFIG_MPU_SENSORS_MPU3050)
 	{
-		I2C_BOARD_INFO(MPU_NAME, DEFAULT_MPU_SLAVEADDR),
+		I2C_BOARD_INFO(MPU_DEV, DEFAULT_MPU_SLAVEADDR),
 		.irq = GPIO_TO_IRQ(SENSOR_INT_GAVINI_R0_0),
 		.platform_data = &mpu_data_gavini_r01,
 	},
@@ -892,6 +932,7 @@ static struct i2c_board_info __initdata gavini_r0_0_i2c3_devices[] = {
 #endif
 };
 
+
 static struct i2c_gpio_platform_data gavini_gpio_i2c4_data = {
 	.sda_pin = SUBPMU_SDA_GAVINI_R0_0,
 	.scl_pin = SUBPMU_SCL_GAVINI_R0_0,
@@ -928,6 +969,7 @@ static struct i2c_board_info __initdata gavini_r0_0_gpio_i2c4_devices[] = {
 };
 
 
+
 static struct i2c_gpio_platform_data gavini_gpio_i2c5_data = {
 	.sda_pin = MPR_SDA_GAVINI_R0_0,
 	.scl_pin = MPR_SCL_GAVINI_R0_0,
@@ -942,13 +984,16 @@ static struct platform_device gavini_gpio_i2c5_pdata = {
 	},
 };
 
+
 static struct i2c_board_info __initdata gavini_r0_0_gpio_i2c5_devices[] = {
+// TBD - TOUCHKEY NTS1308U
 	{
 		I2C_BOARD_INFO("dpp2601", 0x36 >> 1),
 		.irq = GPIO_TO_IRQ(PROJECTOR_INTZ_GAVINI_R0_0),
 		.platform_data = &projector_dpp2601_pdata,
 	},
 };
+
 
 #if defined(CONFIG_KEYBOARD_CYPRESS_TOUCH)
 static struct i2c_board_info __initdata gavini_r0_1_gpio_i2c5_devices[] = {
@@ -1010,26 +1055,25 @@ static struct i2c_board_info __initdata gavini_r0_0_gpio_i2c7_devices[] = {
 static struct i2c_gpio_platform_data gavini_gpio_i2c8_data = {
 	.sda_pin = SENSOR_SDA_GAVINI_R0_0,
 	.scl_pin = SENSOR_SCL_GAVINI_R0_0,
-	.udelay = 3,	/* closest to 400KHz */
+	.udelay = 1,	/* closest to 400KHz */
 };
 
 static struct platform_device gavini_gpio_i2c8_pdata = {
 	.name = "i2c-gpio",
 	.id = 8,
 	.dev = {
-		.platform_data = &gavini_gpio_i2c8_data,
+	.platform_data = &gavini_gpio_i2c8_data,
 	},
 };
 
 static struct i2c_board_info __initdata gavini_r0_0_gpio_i2c8_devices[] = {
 #if defined(CONFIG_MPU_SENSORS_MPU3050)
 		{
-			I2C_BOARD_INFO(MPU_NAME, DEFAULT_MPU_SLAVEADDR),
+			I2C_BOARD_INFO(MPU_DEV, DEFAULT_MPU_SLAVEADDR),
 			.irq = GPIO_TO_IRQ(SENSOR_INT_GAVINI_R0_0),
 			.platform_data = &mpu_data_gavini_r00,
 		},
 #endif
-
 };
 
 #if defined(CONFIG_PROXIMITY_GP2A030)
@@ -1060,7 +1104,7 @@ static struct i2c_board_info __initdata gavini_r0_0_c_gpio_i2c9_devices[] = {
 #ifdef CONFIG_KEYBOARD_GPIO
 struct gpio_keys_button gavini_r0_0_gpio_keys[] = {
 	{
-	.code = KEY_HOME,		/* input event code (KEY_*, SW_*) */
+	.code = KEY_HOMEPAGE,		/* input event code (KEY_*, SW_*) */
 	.gpio = HOME_KEY_GAVINI_R0_0,
 	.active_low = 1,
 	.desc = "home_key",
@@ -1113,7 +1157,6 @@ struct platform_device gavini_gpio_keys_device = {
 	},
 };
 #endif
-
 #ifdef CONFIG_LEDS_CLASS
 static struct gpio_led gavini_touchkey_leds[] = {
 	{
@@ -1196,7 +1239,7 @@ static char *usb_functions_acm_mtp[] = {
 	"acm",
 };
 
-#ifdef CONFIG_USB_ANDROID_ECM /* Temp !! will  be deleted 2011.04.12*/
+#ifdef CONFIG_USB_ANDROID_ECM // Temp !! will  be deleted 2011.04.12
 /*Temp debug mode */
 static char *usb_functions_acm_mtp_adb[] = {
 	"mtp",
@@ -1240,7 +1283,7 @@ static char *usb_functions_ums_adb[] = {
 static char *usb_functions_all[] = {
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
 /* soonyong.cho : Every function driver for samsung composite.
- *		  Number of to enable function features have to be same as below.
+ *  		  Number of to enable function features have to be same as below.
  */
 #ifdef CONFIG_USB_ANDROID_MASS_STORAGE
 	"usb_mass_storage",
@@ -1565,77 +1608,6 @@ U8500_I2C_CONTROLLER(1, 0xe, 1, 8, 400000, 200, I2C_FREQ_MODE_FAST);
 U8500_I2C_CONTROLLER(2, 0xe, 1, 8, 400000, 200, I2C_FREQ_MODE_FAST);
 U8500_I2C_CONTROLLER(3, 0xe, 1, 8, 400000, 200, I2C_FREQ_MODE_FAST);
 
-/* For Gavini GB : gavini_gpio_wq_kdebounce */
-#if 0
-/**
- * gavini_gpio_wq_kdebounce - work queue to debounce GPIO inputs.
- * @work:	pointer to gpio data
- *
- * Waits until GPIOI input are in steady state.
- */
-#define DEBOUNCE_PERIOD		10	/* scan period in ms */
-#define DEBOUNCE_CYCLES		6	/* Number of periods to check for bounce */
-
-void gavini_gpio_wq_debounce(struct work_struct *work)
-{
-	int cnt;
-	int input_state;
-	struct gpio_debounce_t *pDb = container_of((struct work_struct *)work,
-					   struct gpio_debounce_t, debounce_work);
-
-	input_state = gpio_get_value( pDb->gpio );
-
-	/* Debounce count */
-	cnt = 0;
-
-	/* Scan gpio input until it reachs a stable state for DEBOUNCE_CYCLES debounce periods */
-	do
-	{
-		int value;
-
-		msleep(DEBOUNCE_PERIOD);
-
-		value = gpio_get_value( pDb->gpio );
-
-		if ( input_state != value )
-		{
-			input_state = value;
-
-			cnt = 0;
-		}
-
-		cnt++;
-	}while ( cnt < DEBOUNCE_CYCLES );
-
-	// Process action
-	if ( pDb->pWork )
-	{
-		if ( pDb->wq )
-		{
-			queue_work(pDb->wq, pDb->pWork);
-		}
-		else
-		{
-			schedule_work( pDb->pWork );
-		}
-	}
-	else if ( pDb->pFn )
-	{
-		pDb->pFn();
-
-	}
-	else
-	{
-		printk(KERN_ERR"Debounce: Action function not found\n");
-	}
-
-	if ( pDb->irq_disabled )
-	{
-		enable_irq( gpio_to_irq( pDb->gpio ) );
-	}
-
-}
-#endif
 
 /*
  * SSP
@@ -1673,7 +1645,7 @@ static struct spi_board_info spi_board_info[] __initdata = {
 		.chip_select = 0,
 		.mode = SPI_MODE_0,
 		.irq = IRQ_DB8500_SPI0,
-	},
+        },
 };
 #else
 #define LCD_BUS_NUM     2
@@ -1765,6 +1737,7 @@ static struct ab8500_sysctrl_platform_data ab8500_sysctrl_pdata = {
 	.reboot_reason_code = reboot_reason_code,
 };
 
+
 #ifdef CONFIG_SAMSUNG_JACK
 static struct sec_jack_zone sec_jack_zones[] = {
 	{
@@ -1817,15 +1790,15 @@ static struct sec_jack_zone sec_jack_zones[] = {
 /* to support 3-buttons earjack */
 static struct sec_jack_buttons_zone sec_jack_buttons_zones[] = {
 	{
-		/* 0 <= adc <=82, stable zone */
+		/* 0 <= adc <=90, stable zone */
 		.code		= KEY_MEDIA,
 		.adc_low	= 0,
-		.adc_high	= 82,
+		.adc_high	= 90,
 	},
 	{
-		/* 83 <= adc <= 200, stable zone */
+		/* 91 <= adc <= 200, stable zone */
 		.code		= KEY_VOLUMEUP,
-		.adc_low	= 83,
+		.adc_low	= 91,
 		.adc_high	= 200,
 	},
 	{
@@ -1850,30 +1823,29 @@ static void sec_jack_mach_init(struct platform_device *pdev)
 	ret = abx500_set_register_interruptible(&pdev->dev, AB8500_ECI_AV_ACC,
 		0x80, 0x31);
 	if (ret < 0)
-		pr_err("%s: ab8500 write failed\n", __func__);
+		pr_err("%s: ab8500 write failed\n",__func__);
 
 	/* initialise threshold for ACCDETECT2 comparator1 and comparator2 */
 	ret = abx500_set_register_interruptible(&pdev->dev, AB8500_ECI_AV_ACC,
 		0x81, 0xB3);
 	if (ret < 0)
-		pr_err("%s: ab8500 write failed\n", __func__);
+		pr_err("%s: ab8500 write failed\n",__func__);
 
 	ret = abx500_set_register_interruptible(&pdev->dev, AB8500_ECI_AV_ACC,
 		0x82, 0x33);
 
 	if (ret < 0)
-		pr_err("%s: ab8500 write failed\n", __func__);
+		pr_err("%s: ab8500 write failed\n",__func__);
 
 	/* set output polarity to Gnd when VAMIC1 is disabled */
-	ret = abx500_set_register_interruptible(&pdev->dev, AB8500_REGU_CTRL1,
-		0x84, 0x1);
+	ret = abx500_set_register_interruptible(&pdev->dev, AB8500_REGU_CTRL1, 0x84, 0x1);
 	if (ret < 0)
-		pr_err("%s: ab8500 write failed\n", __func__);
+		pr_err("%s: ab8500 write failed\n",__func__);
 }
 
 int sec_jack_get_det_level(struct platform_device *pdev)
 {
-	int value = 0;
+	u8 value = 0;
 	int ret = 0;
 
 	abx500_get_register_interruptible(&pdev->dev, AB8500_INTERRUPT, 0x4,
@@ -1884,20 +1856,10 @@ int sec_jack_get_det_level(struct platform_device *pdev)
 	return ret;
 }
 
-void sec_jack_set_earspk_sel(bool on)
-{
-	unsigned long flags;
-	spin_lock_irqsave(&dock_gpio_lock, flags);
-	sec_jack_dock_gpio = on;
-	set_shared_dock_gpio();
-	spin_unlock_irqrestore(&dock_gpio_lock, flags);
-}
-
 struct sec_jack_platform_data sec_jack_pdata = {
 	.get_adc_value = sec_jack_get_adc_value,
 	.mach_init = sec_jack_mach_init,
 	.get_det_level = sec_jack_get_det_level,
-	.set_earspk_sel = sec_jack_set_earspk_sel,
 	.zones = sec_jack_zones,
 	.num_zones = ARRAY_SIZE(sec_jack_zones),
 	.buttons_zones = sec_jack_buttons_zones,
@@ -1909,6 +1871,7 @@ struct sec_jack_platform_data sec_jack_pdata = {
 	.regulator_mic_source = "v-amic1"
 };
 #endif
+
 
 #ifdef CONFIG_MODEM_U8500
 static struct platform_device u8500_modem_dev = {
@@ -1946,19 +1909,15 @@ struct platform_device db9500_cpuidle_device = {
 	},
 };
 
-/*
- * NOTE! The regulator configuration below must be in exactly the same order as
- * the regulator description in the driver, see drivers/regulator/ab8500.c
- */
 static struct ab8500_platform_data ab8500_platdata = {
 	.irq_base	= MOP500_AB8500_IRQ_BASE,
 	.regulator	= &gavini_regulator_plat_data,
-	.battery = &ab8500_bm_data,
-	.charger = &ab8500_charger_plat_data,
-	.btemp = &ab8500_btemp_plat_data,
-	.fg = &ab8500_fg_plat_data,
-	.chargalg = &ab8500_chargalg_plat_data,
-	.gpio = &ab8500_gpio_pdata,
+	.battery	= &ab8500_bm_data,
+	.charger	= &ab8500_charger_plat_data,
+	.btemp		= &ab8500_btemp_plat_data,
+	.fg		= &ab8500_fg_plat_data,
+	.chargalg	= &ab8500_chargalg_plat_data,
+	.gpio		= &ab8500_gpio_pdata,
 	.sysctrl	= &ab8500_sysctrl_pdata,
 #ifdef CONFIG_SAMSUNG_JACK
        .accdet = &sec_jack_pdata,
@@ -1985,11 +1944,6 @@ static struct platform_device ab8500_device = {
 	},
 	.num_resources = 1,
 	.resource = ab8500_resources,
-};
-
-static struct platform_device *gavini_platform_devices[] __initdata = {
-	/*TODO - add platform devices here */
-
 };
 
 static struct platform_device sec_device_rfkill = {
@@ -2057,7 +2011,11 @@ static struct amba_pl011_data uart0_plat = {
 	.init = ux500_uart0_init,
 	.exit = ux500_uart0_exit,
     .reset = u8500_uart0_reset,
-	.amba_pl011_wake_peer = bt_wake_peer,
+#ifdef CONFIG_BT_BCM4330
+	.amba_pl011_wake_peer = bcm_bt_lpm_exit_lpm_locked,
+#else
+	.amba_pl011_wake_peer = NULL,
+#endif
 };
 
 static struct amba_pl011_data uart1_plat = {
@@ -2079,6 +2037,7 @@ static struct amba_pl011_data uart2_plat = {
 	.reset = u8500_uart2_reset,
 	.amba_pl011_wake_peer = NULL,
 };
+
 
 static struct cryp_platform_data u8500_cryp1_platform_data = {
 	.mem_to_engine = {
@@ -2119,6 +2078,13 @@ static struct hash_platform_data u8500_hash1_platform_data = {
 	.dma_filter = stedma40_filter,
 };
 
+#ifdef CONFIG_BT_BCM4330
+static struct platform_device bcm4330_bluetooth_platform_driver = {
+	.name = "bcm4330_bluetooth",
+	.id = -1,
+};
+#endif
+
 static struct platform_device *platform_devs[] __initdata = {
 	&u8500_shrm_device,
 #ifdef SSG_CAMERA_ENABLE
@@ -2158,17 +2124,16 @@ static struct platform_device *platform_devs[] __initdata = {
 #ifdef CONFIG_DB8500_MLOADER
 	&mloader_fw_device,
 #endif
-#ifdef CONFIG_RFKILL
-	&sec_device_rfkill,
+#ifdef CONFIG_BT_BCM4330
+	&bcm4330_bluetooth_platform_driver,
 #endif
-
 #ifdef CONFIG_LEDS_CLASS
 	&gavini_gpio_leds_device,
 #endif
 };
 
 static struct platform_device *platform_devs_rev8[] __initdata = {
-	&u8500_shrm_device,
+		&u8500_shrm_device,
 #ifdef SSG_CAMERA_ENABLE
 	&ux500_mmio_device,
 #endif
@@ -2183,6 +2148,7 @@ static struct platform_device *platform_devs_rev8[] __initdata = {
 #ifdef CONFIG_STE_TRACE_MODEM
 	&u8500_trace_modem,
 #endif
+	&db8500_mali_gpu_device,
 #ifdef CONFIG_MODEM_U8500
 	&u8500_modem_dev,
 #endif
@@ -2205,8 +2171,8 @@ static struct platform_device *platform_devs_rev8[] __initdata = {
 #ifdef CONFIG_DB8500_MLOADER
 	&mloader_fw_device,
 #endif
-#ifdef CONFIG_RFKILL
-	&sec_device_rfkill,
+#ifdef CONFIG_BT_BCM4330
+	&bcm4330_bluetooth_platform_driver,
 #endif
 #ifdef CONFIG_PROXIMITY_GP2A030
 	&opt_gp2a_00C,
@@ -2217,13 +2183,12 @@ static struct platform_device *platform_devs_rev8[] __initdata = {
 #endif
 };
 
-
 #if defined(CONFIG_MPU_SENSORS_MPU3050)
 static void gavini_mpl_init(void)
 {
 	int intrpt_gpio = SENSOR_INT_GAVINI_R0_0;
 
-	gpio_request(intrpt_gpio, "MPUIRQ");
+	gpio_request(intrpt_gpio,"MPUIRQ");
 	gpio_direction_input(intrpt_gpio);
 }
 #endif
@@ -2236,9 +2201,7 @@ static void __init gavini_i2c_init(void)
 	db8500_add_i2c3(&gavini_i2c3_data);
 
 	if (system_rev < GAVINI_R0_0_C) {
-#if defined(CONFIG_PROXIMITY_GP2A030)
 		platform_device_register(&opt_gp2a);
-#endif
 		i2c_register_board_info(0,
 			ARRAY_AND_SIZE(gavini_r0_0_i2c0_devices));
 		i2c_register_board_info(1,
@@ -2272,9 +2235,7 @@ static void __init gavini_i2c_init(void)
 		i2c_register_board_info(8,
 			ARRAY_AND_SIZE(gavini_r0_0_gpio_i2c8_devices));
 	} else {
-#if defined(CONFIG_PROXIMITY_GP2A030)
 		platform_device_register(&gavini_gpio_i2c9_pdata);
-#endif
 		i2c_register_board_info(9,
 			ARRAY_AND_SIZE(gavini_r0_0_c_gpio_i2c9_devices));
 	}
@@ -2357,8 +2318,6 @@ static void __init gavini_projector_init(void)
 	}
 }
 
-
-
 void godin_cam_init(void);
 
 static void __init gavini_init_machine(void)
@@ -2380,8 +2339,9 @@ static void __init gavini_init_machine(void)
 #ifdef CONFIG_USB_ANDROID
 	fetch_usb_serial_no(USB_SERIAL_NUMBER_LEN);
 #endif
+	nmk_gpio_clocks_enable();
 
-	if (system_rev >= GAVINI_R0_0_A)
+		if (system_rev >= GAVINI_R0_0_A)
 		platform_add_devices(platform_devs_rev8,
 						ARRAY_SIZE(platform_devs_rev8));
 	else
@@ -2397,11 +2357,7 @@ static void __init gavini_init_machine(void)
 	ssg_pins_init();
 
 	u8500_cryp1_hash1_init();
-
-/* TODO: This needs to be customised for Samsung Camera code
-	mmio_config.xenon_charge.gpio = EGPIO_PIN_5; */
-
-
+	//gavini_mxt_init();
 	gavini_i2c_init();
 	gavini_spi_init();
 	mop500_msp_init();		/* generic for now */
@@ -2418,13 +2374,13 @@ static void __init gavini_init_machine(void)
 
 	sec_cam_init();
 
-	platform_add_devices(gavini_platform_devices,
-			     ARRAY_SIZE(gavini_platform_devices));
+	/* This board has full regulator constraints */
+	regulator_has_full_constraints();
 
 	sec_common_init_post() ;
-
+	
 	mms136_ts_init();
-
+	nmk_gpio_clocks_disable();
 }
 
 static int __init  jig_smd_status(char *str)
@@ -2451,6 +2407,8 @@ __setup("debug=",sec_debug_setup);
  */
 static int __init board_id_setup(char *str)
 {
+	
+
 	if (get_option(&str, &board_id) != 1)
 		board_id = 0;
 
@@ -2484,10 +2442,9 @@ static int __init board_id_setup(char *str)
 		system_rev = GAVINI_R0_1;
 		break;
 	case 14:
-		printk(KERN_INFO "GAVINI Board Rev 0.3\n");
+		printk(KERN_INFO "GAVINI Board Rev 0.1\n");
 		system_rev = GAVINI_R0_3;
 		break;
-
 	default:
 		printk(KERN_INFO "Unknown board_id=%c\n", *str);
 		break;
@@ -2504,4 +2461,7 @@ MACHINE_START(GAVINI, "SAMSUNG GAVINI")
 	.init_irq	= ux500_init_irq,
 	.timer		= &ux500_timer,
 	.init_machine	= gavini_init_machine,
+	.restart	= ux500_restart,
 MACHINE_END
+
+

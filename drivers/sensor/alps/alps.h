@@ -17,7 +17,7 @@ int accsns_activate(int flgatm, int flg, int dtime);
 
 #ifdef CONFIG_SENSORS_HSCD
 int hscd_get_magnetic_field_data(int *xyz);
-int hscd_activate(int flgatm, int flg, int dtime);
+static int hscd_activate(int flgatm, int flg, int dtime);
 #endif
 void bma222e_activate(int flgatm, int flg, int dtime);
 int bma222e_get_acceleration_data(int *xyz);

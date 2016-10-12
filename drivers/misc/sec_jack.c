@@ -31,13 +31,18 @@
 #include <linux/regulator/consumer.h>
 #include <linux/sec_jack.h>
 #include <linux/mfd/ab8500.h>
-#ifdef CONFIG_MACH_SEC_GOLDEN
+#ifdef CONFIG_MACH_SEC_ACC_CONTROL //KSND
 #include <linux/mfd/abx500.h>
 #endif
 
 #define MAX_ZONE_LIMIT		10
+#ifdef CONFIG_MACH_CODINA
+#define DET_CHECK_TIME_MS	170		/* 170ms */
+#define BUTTONS_CHECK_TIME_MS   48              /* 45ms */
+#else
 #define DET_CHECK_TIME_MS	250		/* 250ms */
-#define BUTTONS_CHECK_TIME_MS	60		/* 60ms */
+#define BUTTONS_CHECK_TIME_MS   60              /* 60ms */
+#endif
 #define WAKE_LOCK_TIME		(HZ * 5)	/* 5 sec */
 
 struct sec_jack_info {
@@ -51,7 +56,9 @@ struct sec_jack_info {
 	struct input_dev *input;
 	struct timespec tp;  /* Get Current time for KSND */
 	struct timespec tp_after; /* Get Current time After Event */
+#ifdef CONFIG_MACH_SEC_ACC_CONTROL //KSND added
 	struct device *pmdev; /* Device */
+#endif
 	int det_r_irq;
 	int det_f_irq;
 	int buttons_r_irq;
@@ -64,7 +71,7 @@ struct sec_jack_info {
 	bool send_key_pressed;
 };
 
-#ifdef CONFIG_MACH_SEC_GOLDEN
+#ifdef CONFIG_SAMSUNG_JACK_SW_WATERPROOF
 static bool recheck_jack;
 #endif
 
@@ -108,8 +115,7 @@ static void set_micbias(struct sec_jack_info *hi, bool on)
 
 }
 
-//KSND added
-#ifdef CONFIG_MACH_SEC_GOLDEN
+#ifdef CONFIG_MACH_SEC_ACC_CONTROL //KSND added
 static void set_Accdetection( struct device *dev, bool on )
 {
   int ret = 0;
@@ -140,8 +146,7 @@ static void sec_jack_set_type(struct sec_jack_info *hi, int jack_type)
 	if (jack_type != SEC_HEADSET_4POLE)
 		set_micbias(hi, false);
 
-//KSND Added
-#if 0 //def CONFIG_MACH_SEC_GOLDEN
+#ifdef CONFIG_MACH_SEC_ACC_CONTROL //KSND added
 	if( jack_type != SEC_JACK_NO_DEVICE )
 		set_Accdetection(hi->pmdev, true );
 	else
@@ -168,7 +173,7 @@ static void determine_jack_type(struct sec_jack_info *hi)
 	int adc;
 	int i;
 
-#ifdef CONFIG_MACH_SEC_GOLDEN
+#ifdef CONFIG_SAMSUNG_JACK_SW_WATERPROOF
 	int reselector_zone = hi->pdata->ear_reselector_zone;
 #endif
 
@@ -191,7 +196,7 @@ static void determine_jack_type(struct sec_jack_info *hi)
 		for (i = 0; i < size; i++) {
 			if (adc <= zones[i].adc_high) {
 				if (++count[i] > zones[i].check_count) {
-#ifdef CONFIG_MACH_SEC_GOLDEN
+#ifdef CONFIG_SAMSUNG_JACK_SW_WATERPROOF
 					if ((recheck_jack == true) && (i > 2) && (reselector_zone < adc)) {
 						pr_debug("%s : something wrong connectoin!\n",__func__);
 						sec_jack_set_type(hi, SEC_JACK_NO_DEVICE);
@@ -216,7 +221,7 @@ static void determine_jack_type(struct sec_jack_info *hi)
 			}
 		}
 	}
-#ifdef CONFIG_MACH_SEC_GOLDEN
+#ifdef CONFIG_SAMSUNG_JACK_SW_WATERPROOF
 	recheck_jack = false;
 #endif
 
@@ -423,8 +428,10 @@ static ssize_t select_jack_store(struct device *dev,
 	sscanf(buf, "%d", &value);
 	pr_err("%s: User  selection : 0X%x", __func__, value);
 	if (value == SEC_HEADSET_4POLE) {
-		pdata->set_micbias_state(true);
-		msleep(100);
+		if (pdata->set_micbias_state) {
+			pdata->set_micbias_state(true);
+			msleep(100);
+		}
 	}
 
 	sec_jack_set_type(hi, value);
@@ -435,7 +442,7 @@ static ssize_t select_jack_store(struct device *dev,
 static DEVICE_ATTR(select_jack, 0664, select_jack_show,
 		select_jack_store);
 
-#ifdef CONFIG_MACH_SEC_GOLDEN
+#ifdef CONFIG_SAMSUNG_JACK_SW_WATERPROOF
 static ssize_t reselect_jack_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
@@ -573,7 +580,7 @@ static int sec_jack_probe(struct platform_device *pdev)
 	if (ret)
 		pr_err("Failed to create device file in sysfs entries(%s)!\n",
 				dev_attr_select_jack.attr.name);
-#ifdef CONFIG_MACH_SEC_GOLDEN
+#ifdef CONFIG_SAMSUNG_JACK_SW_WATERPROOF
 	ret = device_create_file(earjack, &dev_attr_reselect_jack);
 	if (ret)
 		pr_err("Failed to create device file in sysfs entries(%s)!\n",
@@ -667,8 +674,7 @@ static int sec_jack_probe(struct platform_device *pdev)
 
 	dev_set_drvdata(&pdev->dev, hi);
 
-//KSND Added
-#ifdef CONFIG_MACH_SEC_GOLDEN
+#ifdef CONFIG_MACH_SEC_ACC_CONTROL //KSND Added
 	hi->pmdev = &pdev->dev;
 #endif
 

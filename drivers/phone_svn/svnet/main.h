@@ -1,7 +1,10 @@
 /*add interface for sipc files*/
 
-void _non_fmt_wakelock_timeout(void);
+#ifndef FMT_WAKELOCK_TIMEOUT_H
+#define FMT_WAKELOCK_TIMEOUT_H
 
-void _fmt_wakelock_timeout(void);
+extern void _non_fmt_wakelock_timeout(void);
+extern void _fmt_wakelock_timeout(void);
 
+#endif /* FMT_WAKELOCK_TIMEOUT_H */
 

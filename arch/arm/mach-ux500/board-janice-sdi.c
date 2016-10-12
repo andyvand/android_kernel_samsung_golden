@@ -199,9 +199,7 @@ static struct mmci_platform_data ssg_sdi0_data = {
 	.f_max		= 50000000,
 	.capabilities	= MMC_CAP_4_BIT_DATA |
 				MMC_CAP_SD_HIGHSPEED |
-				MMC_CAP_MMC_HIGHSPEED |
-				MMC_CAP_UHS_SDR12 |
-				MMC_CAP_UHS_SDR25,
+				MMC_CAP_MMC_HIGHSPEED,
 	.gpio_cd	= T_FLASH_DETECT_JANICE_R0_0,
 	.gpio_wp	= -1,
 	.cd_invert	= true,
@@ -333,8 +331,10 @@ static struct mmci_platform_data ssg_sdi2_data = {
 	.f_max		= 50000000,
 	.capabilities	= MMC_CAP_4_BIT_DATA |
 				MMC_CAP_8_BIT_DATA |
-				MMC_CAP_MMC_HIGHSPEED |
-				MMC_CAP_ERASE,
+				MMC_CAP_MMC_HIGHSPEED|
+				MMC_CAP_ERASE |
+				MMC_CAP_1_8V_DDR |
+				MMC_CAP_UHS_DDR50,
 	.capabilities2	= MMC_CAP2_NO_SLEEP_CMD,
 //	.pm_flags	= MMC_PM_KEEP_POWER,
 	.gpio_cd	= -1,
@@ -384,7 +384,7 @@ static int brcm_set_carddetect(int val)
 		wifi_status_cb(val, wifi_status_cb_devid);
 	else
 		pr_warning("%s: Nobody to notify\n", __func__);
-	
+
 	return 0;
 }
 

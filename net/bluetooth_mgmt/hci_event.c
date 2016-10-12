@@ -45,6 +45,14 @@
 #include <net/bluetooth/bluetooth.h>
 #include <net/bluetooth/hci_core.h>
 
+#ifdef CONFIG_BT_CG2900
+/*
+ * wait time in ms before reinitiating authentication if failed due
+ * Pin or Link Key Missing Error code.
+ */
+#define HCI_AUTH_REINITIATE_TIMEOUT 150
+#endif
+
 /* Handle HCI Event packets */
 
 static void hci_cc_inquiry_cancel(struct hci_dev *hdev, struct sk_buff *skb)
@@ -1721,6 +1729,28 @@ static inline void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *s
 		hci_conn_hold_device(conn);
 		hci_conn_add_sysfs(conn);
 
+#ifdef CONFIG_BT_CG2900
+		/* Check if we need to forbid role switch and remain master */
+		if (!hci_rs_blacklist_lookup(hdev, &ev->bdaddr)) {
+			struct hci_cp_write_link_policy lp;
+
+			BT_DBG("forbidding role switch for %s "
+				"current link policy = %d",
+				batostr(&ev->bdaddr),
+				conn->link_policy);
+			printk("hci_conn_complete_evt: "
+				"forbidding role switch for %s "
+				"current link policy = %d\n",
+				batostr(&ev->bdaddr),
+				conn->link_policy);
+
+			lp.handle = conn->handle;
+			lp.policy = conn->link_policy & ~HCI_LP_RSWITCH;
+			hci_send_cmd(hdev, HCI_OP_WRITE_LINK_POLICY,
+								sizeof(lp), &lp);
+		}
+#endif
+
 		if (test_bit(HCI_AUTH, &hdev->flags))
 			conn->link_mode |= HCI_LM_AUTH;
 
@@ -1867,6 +1897,10 @@ static inline void hci_disconn_complete_evt(struct hci_dev *hdev, struct sk_buff
 	}
 
 	if (ev->status == 0) {
+#ifdef CONFIG_BT_CG2900
+		if (conn->type == ACL_LINK && conn->flush_key)
+			hci_remove_link_key(hdev, &conn->dst);
+#endif
 		hci_proto_disconn_cfm(conn, ev->reason);
 		hci_conn_del(conn);
 	}
@@ -1892,6 +1926,19 @@ static inline void hci_auth_complete_evt(struct hci_dev *hdev, struct sk_buff *s
 	BT_DBG("conn->remote_auth %x, conn->remote_cap %x, conn->auth_type %x, conn->io_capability %x",
 		conn->remote_auth, conn->remote_cap, conn->auth_type, conn->io_capability);
 
+#ifdef CONFIG_BT_CG2900
+	if (ev->status == 0x06 && hdev->ssp_mode > 0 &&
+						conn->ssp_mode > 0) {
+		struct hci_cp_auth_requested cp;
+		hci_remove_link_key(hdev, &conn->dst);
+		BT_DBG("Pin or key missing !!!");
+		hdev->reinitiate_handle = cpu_to_le16(conn->handle);
+		mod_timer(&hdev->reinitiate_auth_timer,
+					jiffies + msecs_to_jiffies(HCI_AUTH_REINITIATE_TIMEOUT));
+		hci_dev_unlock(hdev);
+		return;
+	}
+#else
 	if (ev->status == 0x06 && hdev->ssp_mode > 0 &&
 						conn->ssp_mode > 0) {
 		struct hci_cp_auth_requested cp;
@@ -1903,6 +1950,7 @@ static inline void hci_auth_complete_evt(struct hci_dev *hdev, struct sk_buff *s
 		BT_DBG("Pin or key missing !!!");
 		return;
 	}
+#endif
 
 	/* SS_BLUETOOTH(is80.hwang) 2012.05.18 */
 	/* for pin code request issue */
@@ -2200,6 +2248,34 @@ static void hci_cc_read_rssi(struct hci_dev *hdev, struct sk_buff *skb)
 							rp->status);
 }
 
+#ifdef CONFIG_BT_CG2900
+static inline void hci_cc_flow_specification_evt(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	struct hci_ev_flow_spec_complete *rp = (void *) skb->data;
+
+	BT_DBG("%s hci_flow_specification_event status 0x%x", hdev->name, rp->status);
+
+	hci_dev_lock(hdev);
+	mgmt_flow_spec_complete(hdev, __le16_to_cpu(rp->handle), rp->status,
+		rp->spec.direction, rp->spec.service_type, rp->spec.token_rate,
+		rp->spec.token_bucket_size, rp->spec.peak_bandwidth,
+		rp->spec.access_latency);
+	hci_dev_unlock(hdev);
+}
+
+static inline void hci_cc_vs_ext_flow_specification_evt(struct hci_dev *hdev, struct sk_buff *skb)
+{
+	struct hci_ev_vs_ext_flow_spec_complete *rp = (void *) skb->data;
+
+	BT_DBG("%s hci_vs_ext_flow_specification_event status 0x%x", hdev->name, rp->status);
+
+	hci_dev_lock(hdev);
+	mgmt_vs_ext_flow_spec_complete(hdev, __le16_to_cpu(rp->handle), rp->status,
+					rp->interval, rp->window);
+	hci_dev_unlock(hdev);
+}
+#endif
+
 static inline void hci_cmd_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct hci_ev_cmd_complete *ev = (void *) skb->data;
@@ -2402,6 +2478,12 @@ static inline void hci_cmd_complete_evt(struct hci_dev *hdev, struct sk_buff *sk
 		hci_cc_le_test_end(hdev, skb);
 		break;
 
+#ifdef CONFIG_BT_CG2900
+	case HCI_OP_VS_EXT_FLOW_SPECIFICATION:
+		hci_cc_vs_ext_flow_specification_evt(hdev, skb);
+		break;
+#endif
+
 	default:
 		BT_DBG("%s opcode 0x%x", hdev->name, opcode);
 		break;
@@ -2410,7 +2492,7 @@ static inline void hci_cmd_complete_evt(struct hci_dev *hdev, struct sk_buff *sk
 	if (ev->opcode != HCI_OP_NOP)
 		del_timer(&hdev->cmd_timer);
 
-	if (ev->ncmd) {
+	if (ev->ncmd && !test_bit(HCI_RESET, &hdev->flags)) {
 		atomic_set(&hdev->cmd_cnt, 1);
 		if (!skb_queue_empty(&hdev->cmd_q))
 			tasklet_schedule(&hdev->cmd_task);
@@ -3604,6 +3686,12 @@ void hci_event_packet(struct hci_dev *hdev, struct sk_buff *skb)
 	case HCI_EV_REMOTE_OOB_DATA_REQUEST:
 		hci_remote_oob_data_request_evt(hdev, skb);
 		break;
+
+#ifdef CONFIG_BT_CG2900
+	case EVT_FLOW_SPEC_COMPLETE:
+		hci_cc_flow_specification_evt(hdev, skb);
+		break;
+#endif
 
 	default:
 		BT_DBG("%s event 0x%x", hdev->name, event);

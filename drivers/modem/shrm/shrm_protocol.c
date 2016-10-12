@@ -1065,11 +1065,13 @@ int shrm_protocol_init(struct shrm_dev *shrm,
 #ifdef CONFIG_U8500_KERNEL_CLIENT
 	err = u8500_kernel_client_init(shrm);
 #endif
+#if 0
 	/*
 	 * Since modem is loaded via kernel, kernel should make sure to set
 	 * host access port, to enable modem.
 	 */
 	modem_request(shrm->modem);
+#endif
 	return err;
 
 #ifdef CONFIG_U8500_SHRM_MODEM_SILENT_RESET

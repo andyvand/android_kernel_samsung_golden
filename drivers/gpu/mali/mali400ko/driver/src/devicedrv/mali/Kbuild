@@ -31,7 +31,7 @@ USING_PROFILING = 0
 USING_UMP ?= 0
 USING_OS_MEMORY ?= 0
 USING_MALI_PMM_TESTSUITE ?= 0
-OS_MEMORY_KERNEL_BUFFER_SIZE_IN_MB ?= 24
+OS_MEMORY_KERNEL_BUFFER_SIZE_IN_MB ?= 16
 USING_PROFILING ?= 1
 USING_INTERNAL_PROFILING ?= 0
 DISABLE_PP0 ?= 0
@@ -121,7 +121,7 @@ MALI_PLATFORM_FILE = platform/default/mali_platform.c
 endif
 
 # Get subversion revision number, fall back to only ${MALI_RELEASE_NAME} if no svn info is available
-SVN_REV := $(shell (cd $(DRIVER_DIR); (svnversion | grep -E "^[0-9]+" && svnversion) || git svn info | grep '^Revision: '| sed -e 's/^Revision: //' ) 2>/dev/null )
+SVN_REV := $(shell (cd $(DRIVER_DIR); (svnversion | grep -qv exported && svnversion) || git svn info | grep '^Revision: '| sed -e 's/^Revision: //' ) 2>/dev/null )
 ifeq ($(SVN_REV),)
 SVN_REV := $(MALI_RELEASE_NAME)
 else
@@ -135,7 +135,7 @@ $(error No configuration found for config $(CONFIG). Check that arch-$(CONFIG)/c
 else
 # Link arch to the selected arch-config directory
 $(shell [ -L $(DRIVER_DIR)/arch ] && rm $(DRIVER_DIR)/arch)
-$(shell ln -sf arch-$(CONFIG) $(DRIVER_DIR)/arch)
+$(shell ln -sf $(DRIVER_DIR)/arch-$(CONFIG) $(DRIVER_DIR)/arch)
 $(shell touch $(DRIVER_DIR)/arch/config.h)
 endif
 

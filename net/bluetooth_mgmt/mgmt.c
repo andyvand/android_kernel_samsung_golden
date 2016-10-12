@@ -76,6 +76,11 @@ static const u16 mgmt_commands[] = {
 	MGMT_OP_BLOCK_DEVICE,
 	MGMT_OP_UNBLOCK_DEVICE,
 	MGMT_OP_LE_TEST_END,
+#ifdef CONFIG_BT_CG2900
+	MGMT_OP_READ_RSSI,
+	MGMT_OP_FLOW_SPECIFICATION,
+	MGMT_OP_FORBID_ROLE_SWITCH,
+#endif
 };
 
 static const u16 mgmt_events[] = {
@@ -99,6 +104,9 @@ static const u16 mgmt_events[] = {
 	MGMT_EV_DEVICE_BLOCKED,
 	MGMT_EV_DEVICE_UNBLOCKED,
 	MGMT_EV_DEVICE_UNPAIRED,
+#ifdef CONFIG_BT_CG2900
+	MGMT_EV_FLOW_SPECIFICATION_COMPLETE,
+#endif
 };
 
 /*
@@ -2734,6 +2742,168 @@ static int le_test_end_complete(struct hci_dev *hdev, u8 status, u16 num_pkts)
 	return err;
 }
 
+#ifdef CONFIG_BT_CG2900
+static int flow_specification(struct sock *sk, u16 index, unsigned char *data, u16 len)
+{
+	struct mgmt_cp_flow_spec *cp = (void *) data;
+	struct flow_spec_cp std_flow_spec;
+	struct vs_ext_flow_spec_cp vs_ext_flow_spec;
+	struct pending_cmd *cmd;
+	struct hci_conn *conn;
+	struct hci_dev *hdev;
+	int err = 0;
+
+	if (len != sizeof(*cp))
+		return cmd_status(sk, index, MGMT_OP_FLOW_SPECIFICATION,
+						MGMT_STATUS_INVALID_PARAMS);
+
+	hdev = hci_dev_get(index);
+	if (!hdev) {
+		return cmd_status(sk, index, MGMT_OP_FLOW_SPECIFICATION,
+						MGMT_STATUS_INVALID_PARAMS);
+	}
+
+	if (!hdev_is_powered(hdev))
+		return cmd_status(sk, index, MGMT_OP_FLOW_SPECIFICATION,
+						MGMT_STATUS_NOT_POWERED);
+
+	hci_dev_lock_bh(hdev);
+
+	/* copy command data to local data sturctures */
+	vs_ext_flow_spec.service_interval = cp->service_interval;
+	vs_ext_flow_spec.out_service_window = cp->out_service_window;
+	vs_ext_flow_spec.in_service_window = cp->in_service_window;
+	vs_ext_flow_spec.cqae = cp->cqae;
+	vs_ext_flow_spec.packet_size = cp->packet_size;
+
+	std_flow_spec.spec.direction = cp->direction;
+	std_flow_spec.spec.service_type = cp->service_type;
+	std_flow_spec.spec.token_rate = cp->token_rate;
+	std_flow_spec.spec.token_bucket_size = cp->token_bucket_size;
+	std_flow_spec.spec.peak_bandwidth = cp->peak_bandwidth;
+	std_flow_spec.spec.access_latency = cp->access_latency;
+
+	if (mgmt_pending_find(MGMT_OP_FLOW_SPECIFICATION, hdev)) {
+		err = cmd_status(sk, index, MGMT_OP_FLOW_SPECIFICATION,
+							MGMT_STATUS_BUSY);
+		goto unlock;
+	}
+
+	conn = hci_conn_hash_lookup_ba(hdev, ACL_LINK, &cp->bdaddr);
+
+	if (!conn) {
+		err = cmd_status(sk, index, MGMT_OP_FLOW_SPECIFICATION,
+						MGMT_STATUS_NOT_CONNECTED);
+		goto unlock;
+	}
+
+	cmd = mgmt_pending_add(sk, MGMT_OP_FLOW_SPECIFICATION, hdev, NULL, len);
+	if (!cmd) {
+		err = -ENOMEM;
+		goto unlock;
+	}
+
+	if (conn->link_mode & HCI_LM_MASTER) {
+		/* case of master link */
+		put_unaligned_le16(conn->handle, &vs_ext_flow_spec.handle);
+		err = hci_send_cmd(hdev, HCI_OP_VS_EXT_FLOW_SPECIFICATION,
+				sizeof(vs_ext_flow_spec), &vs_ext_flow_spec);
+		if (err < 0)
+			mgmt_pending_remove(cmd);
+	} else {
+		/* case of slave link */
+		put_unaligned_le16(conn->handle, &std_flow_spec.handle);
+		err = hci_send_cmd(hdev, HCI_OP_FLOW_SPECIFICATION,
+				sizeof(std_flow_spec), &std_flow_spec);
+		if (err < 0)
+			mgmt_pending_remove(cmd);
+	}
+
+unlock:
+	hci_dev_unlock_bh(hdev);
+
+	return err;
+}
+
+static int forbid_role_switch(struct sock *sk, u16 index, unsigned char *data, u16 len)
+{
+	struct mgmt_cp_forbid_role_switch *cp = (void *) data;
+	struct pending_cmd *cmd;
+	struct hci_cp_write_link_policy write_link_policy;
+	struct hci_conn *conn;
+	struct hci_dev *hdev;
+	int err = 0;
+
+	BT_DBG("");
+
+	if (len != sizeof(*cp))
+		return cmd_status(sk, hdev->id, MGMT_OP_FORBID_ROLE_SWITCH,
+						MGMT_STATUS_INVALID_PARAMS);
+
+
+	hdev = hci_dev_get(index);
+	if (!hdev) {
+		return cmd_status(sk, index, MGMT_OP_FORBID_ROLE_SWITCH,
+						MGMT_STATUS_INVALID_PARAMS);
+	}
+
+	if (!hdev_is_powered(hdev))
+		return cmd_status(sk, hdev->id, MGMT_OP_FORBID_ROLE_SWITCH,
+						MGMT_STATUS_NOT_POWERED);
+
+	hci_dev_lock_bh(hdev);
+
+	if (mgmt_pending_find(MGMT_OP_FORBID_ROLE_SWITCH, hdev)) {
+		err = cmd_status(sk, index, MGMT_OP_FORBID_ROLE_SWITCH,
+							MGMT_STATUS_BUSY);
+		goto unlock;
+	}
+
+	conn = hci_conn_hash_lookup_ba(hdev, ACL_LINK, &cp->bdaddr);
+
+	if (!conn) {
+		err = cmd_status(sk, index, MGMT_OP_FORBID_ROLE_SWITCH,
+						MGMT_STATUS_NOT_CONNECTED);
+		goto unlock;
+	}
+
+	/* Forbid role switch only if master on link */
+	if (!(conn->link_mode & HCI_LM_MASTER)) {
+		/* Current role is slave, no need to forbid role switch */
+		err = cmd_complete(sk, index, MGMT_OP_FORBID_ROLE_SWITCH,
+									NULL, 0);
+		goto unlock;
+	}
+
+	/* Change the Link Policy if Role Switch is enabled. */
+	if (!(conn->link_policy & HCI_LP_RSWITCH)) {
+		/* The current link policy already forbids role switch */
+		err = cmd_complete(sk, index, MGMT_OP_FORBID_ROLE_SWITCH,
+									NULL, 0);
+		goto unlock;
+	}
+
+	cmd = mgmt_pending_add(sk, MGMT_OP_FORBID_ROLE_SWITCH, hdev, NULL, len);
+	if (!cmd) {
+		err = -ENOMEM;
+		goto unlock;
+	}
+
+	/* Write the New Link Policy */
+	write_link_policy.handle = conn->handle;
+	write_link_policy.policy = conn->link_policy & ~HCI_LP_RSWITCH;
+	err = hci_send_cmd(hdev, HCI_OP_WRITE_LINK_POLICY,
+			sizeof(write_link_policy), &write_link_policy);
+	if (err < 0)
+		mgmt_pending_remove(cmd);
+
+unlock:
+	hci_dev_unlock_bh(hdev);
+
+	return err;
+}
+#endif
+
 int mgmt_control(struct sock *sk, struct msghdr *msg, size_t msglen)
 {
 	void *buf;
@@ -2889,6 +3059,15 @@ int mgmt_control(struct sock *sk, struct msghdr *msg, size_t msglen)
 	case MGMT_OP_LE_TEST_END:
 		err = test_end_le(sk, index);
 		break;
+#ifdef CONFIG_BT_CG2900
+	/* STE: QoS Changes */
+	case MGMT_OP_FLOW_SPECIFICATION:
+		err = flow_specification(sk, index, cp, len);
+		break;
+	case MGMT_OP_FORBID_ROLE_SWITCH:
+		err = forbid_role_switch(sk, index, cp, len);
+		break;
+#endif
 	default:
 		BT_DBG("Unknown op %u", opcode);
 		err = cmd_status(sk, index, opcode,
@@ -3030,7 +3209,11 @@ int mgmt_write_scan_failed(struct hci_dev *hdev, u8 scan, u8 status)
 }
 
 int mgmt_new_link_key(struct hci_dev *hdev, struct link_key *key,
+#ifdef CONFIG_BT_CG2900
+								bool persistent)
+#else
 								u8 persistent)
+#endif
 {
 	struct mgmt_ev_new_link_key ev;
 
@@ -3652,6 +3835,127 @@ int mgmt_remote_features(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 features[8])
 	return mgmt_event(MGMT_EV_REMOTE_FEATURES, hdev, &ev, sizeof(ev),
 									NULL);
 }
+
+#ifdef CONFIG_BT_CG2900
+int mgmt_flow_spec_complete(struct hci_dev *hdev, u16 handle, u8 status,
+					u16 direction, u16 service_type,
+					u32	token_rate, u32 token_bucket_size,
+					u32 peak_bandwidth, u32 access_latency)
+{
+	struct pending_cmd *cmd;
+	struct hci_conn *conn;
+	int err;
+
+	BT_DBG("%s status %u", hdev->name, status);
+
+	cmd = mgmt_pending_find(MGMT_OP_FLOW_SPECIFICATION, hdev);
+	if (!cmd)
+		return -ENOENT;
+
+	if (status)
+		err = cmd_status(cmd->sk, hdev->id,
+						MGMT_OP_FLOW_SPECIFICATION,
+						mgmt_status(status));
+	else {
+		struct mgmt_rp_flow_spec rp;
+		rp.status = status;
+		rp.direction = direction;
+		rp.service_type = service_type;
+		rp.token_rate = token_rate;
+		rp.token_bucket_size = token_bucket_size;
+		rp.peak_bandwidth = peak_bandwidth;
+		rp.peak_bandwidth = access_latency;
+
+		conn = hci_conn_hash_lookup_handle(hdev, handle);
+		if (!conn) {
+			err = -ENOENT;
+			goto failed;
+		}
+
+		bacpy(&rp.bdaddr, &conn->dst);
+		err = mgmt_event(MGMT_EV_FLOW_SPECIFICATION_COMPLETE, hdev,
+			 &rp, sizeof(rp), NULL);
+	}
+
+failed:
+	mgmt_pending_remove(cmd);
+
+	return err;
+}
+
+int mgmt_vs_ext_flow_spec_complete(struct hci_dev *hdev, u16 handle, u8 status,
+						u16 interval, u16 window)
+{
+	struct pending_cmd *cmd;
+	struct hci_conn *conn;
+	int err;
+
+	BT_DBG("%s status %u", hdev->name, status);
+
+	cmd = mgmt_pending_find(MGMT_OP_FLOW_SPECIFICATION, hdev);
+	if (!cmd)
+		return -ENOENT;
+
+	if (status) {
+		err = cmd_status(cmd->sk, hdev->id,
+						MGMT_OP_FLOW_SPECIFICATION,
+						mgmt_status(status));
+	} else {
+		struct mgmt_rp_vs_flow_spec rp;
+		rp.status = status;
+		rp.interval = interval;
+		rp.window = window;
+
+		conn = hci_conn_hash_lookup_handle(hdev, handle);
+		if (!conn) {
+			err = -ENOENT;
+			goto failed;
+		}
+
+		bacpy(&rp.bdaddr, &conn->dst);
+		err = cmd_complete(cmd->sk, hdev->id,
+						MGMT_OP_FLOW_SPECIFICATION,
+						&rp, sizeof(rp));
+	}
+
+failed:
+	mgmt_pending_remove(cmd);
+
+	return err;
+}
+
+int mgmt_remote_features_evt(struct hci_dev *hdev, u16 handle, u8 *features)
+{
+	struct mgmt_ev_remote_features ev;
+	struct hci_conn *conn;
+
+	if (!features)
+		return -EINVAL;
+
+	conn = hci_conn_hash_lookup_handle(hdev, handle);
+	if (!conn)
+		return -ENOENT;
+
+	memcpy(ev.features, features, 8);
+	bacpy(&ev.bdaddr, &conn->dst);
+	return mgmt_event(MGMT_EV_REMOTE_FEATURES, hdev, &ev, sizeof(ev), NULL);
+}
+
+int mgmt_write_link_policy(struct hci_dev *hdev)
+{
+	struct pending_cmd *cmd;
+
+	BT_DBG("%s", hdev->name);
+
+	cmd = mgmt_pending_find(MGMT_OP_FORBID_ROLE_SWITCH, hdev);
+	if (!cmd)
+		return -ENOENT;
+
+	mgmt_pending_remove(cmd);
+	return cmd_complete(cmd->sk, cmd->index, MGMT_OP_FORBID_ROLE_SWITCH,
+					NULL, 0);
+}
+#endif
 
 module_param(enable_le, bool, 0644);
 MODULE_PARM_DESC(enable_le, "Enable Low Energy support");

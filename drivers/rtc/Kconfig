@@ -1093,5 +1093,25 @@ config RTC_DRV_PUV3
 
 	  This drive can also be built as a module. If so, the module
 	  will be called rtc-puv3.
+	  
+config MACH_SEC_GOLDEN_CHN
+	bool "Golden_chn"
+	help
+	  Supports Golden_chn boards
+	  
+config MACH_JANICE_CHN
+	bool "Janice_chn"
+	help
+	  Supports Janice_chn boards
+	  
+config MACH_CODINA_CHN
+	bool "Codina_chn"
+	help
+	  Supports Codina_chn boards
 
+config MACH_GAVINI_CHN
+	bool "Gavini_chn"
+	help
+	  Supports Gavini_chn boards
+	  
 endif # RTC_CLASS

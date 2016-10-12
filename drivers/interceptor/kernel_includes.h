@@ -132,12 +132,6 @@ typedef unsigned int Boolean;
 
 /* Platform-specific kernel-mode definitions follow. */
 
-/******************************   LINUX       *****************************/
-/* Sanity checks about module support and that we are supporting it really  */
-#ifndef MODULE
-#    error  "MODULE must be defined when compiling for Linux"
-#endif
-
 #include <linux/string.h>
 
 /* Including linux/skbuff.h here allows us to cleanly make
@@ -150,3 +144,4 @@ typedef unsigned int Boolean;
 /******************************   LINUX (END) *****************************/
 
 #endif /* KERNEL_INCLUDES_H */
+

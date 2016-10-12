@@ -33,7 +33,8 @@
 #define HREFV60_MMIO_XENON_CHARGE 170
 #define HREFV60_XSHUTDOWN_SECONDARY_SENSOR 140
 
-#if defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_JANICE) || defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_GAVINI)
+#if defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_JANICE) || defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_SEC_SKOMER) || defined(CONFIG_MACH_GAVINI) \
+	||defined(CONFIG_MACH_SEC_HENDRIX)
 #define XSHUTDOWN_PRIMARY_SENSOR 142
 #define XSHUTDOWN_SECONDARY_SENSOR 64
 #define RESET_PRIMARY_SENSOR	149
@@ -58,8 +59,8 @@ static pin_cfg_t ipi2c_pins[] = {
 	GPIO9_IPI2C_SCL
 };
 static pin_cfg_t i2c_disable_pins[] = {
-	GPIO8_GPIO | PIN_OUTPUT_LOW,
-	GPIO9_GPIO | PIN_OUTPUT_LOW,
+	GPIO8_GPIO | PIN_INPUT_NOPULL,
+	GPIO9_GPIO | PIN_INPUT_NOPULL,
 };
 
 #if 0
@@ -429,14 +430,14 @@ static int mmio_power_enable(struct mmio_platform_data *pdata)
 		dev_err(pdata->dev, "Error activating i2c2 clock %d\n", err);
 		goto err_ipi2c_clk;
 	}
-	
+
 	dev_dbg(pdata->dev , "Board %s() Exit\n", __func__);
 	return 0;
-	
+
 err_ipi2c_clk:
 	clk_disable(extra->clk_ptr_bml);
 err_bml_clk:
-	
+
 err_regulator:
 	/* Disable regulators we already enabled */
 	while (i--)
@@ -452,7 +453,7 @@ static void mmio_power_disable(struct mmio_platform_data *pdata)
 
 	clk_disable(extra->clk_ptr_bml);
 	clk_disable(extra->clk_ptr_ipi2c);
-	
+
 	/* Disable the regulators */
 	for (i = 0; i < extra->number_of_regulators; i++)
 		regulator_disable(extra->mmio_regulators[i]);
@@ -490,7 +491,7 @@ static int mmio_clock_enable(struct mmio_platform_data *pdata)
 	}
 	dev_dbg(pdata->dev , "Board %s() Exit\n", __func__);
 	return 0;
-	
+
 err_ext_clk:
 	return err;
 }

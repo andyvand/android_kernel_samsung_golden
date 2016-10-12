@@ -56,7 +56,7 @@
 #define FGRES_HWREV_02_CH		133
 #define FGRES_HWREV_03			121
 #define FGRES_HWREV_03_CH		120
-#elif defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_SEC_GOLDEN)
+#elif defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_SEC_GOLDEN)  || defined(CONFIG_MACH_SEC_SKOMER)
 #define USE_COMPENSATING_VOLTAGE_SAMPLE_FOR_CHARGING
 #define FGRES				130
 #define FGRES_CH			125
@@ -376,7 +376,6 @@ struct ab8500_gpadc {
  * @fg_check_hw_failure_work:	Work for checking HW state
  * @cc_lock:		Mutex for locking the CC
  * @fg_kobject:		Structure of type kobject
- * @fg_inst_wake_lock:	Instant current wake_lock
  * @lowbat_wake_lock	Wakelock for low battery
  * @cc_wake_lock	Wakelock for Coulomb Counter
  */
@@ -466,7 +465,6 @@ struct ab8500_fg {
 	struct wake_lock cc_wake_lock;
 #endif
 	struct kobject fg_kobject;
-	struct wake_lock fg_inst_wake_lock;
 };
 static LIST_HEAD(ab8500_fg_list);
 
@@ -895,7 +893,7 @@ int ab8500_fg_inst_curr_start(struct ab8500_fg *di)
 	int ret;
 
 	mutex_lock(&di->cc_lock);
-	wake_lock(&di->fg_inst_wake_lock);
+	dev_dbg(di->dev, "Inst curr start\n");
 
 	di->nbr_cceoc_irq_cnt = 0;
 	ret = abx500_get_register_interruptible(di->dev, AB8500_RTC,
@@ -932,7 +930,6 @@ int ab8500_fg_inst_curr_start(struct ab8500_fg *di)
 	/* Note: cc_lock is still locked */
 	return 0;
 fail:
-	wake_unlock(&di->fg_inst_wake_lock);
 	mutex_unlock(&di->cc_lock);
 	return ret;
 }
@@ -1047,13 +1044,11 @@ int ab8500_fg_inst_curr_finalize(struct ab8500_fg *di, int *res)
 		if (ret)
 			goto fail;
 	}
-	wake_unlock(&di->fg_inst_wake_lock);
 	mutex_unlock(&di->cc_lock);
 	(*res) = val;
 
 	return 0;
 fail:
-	wake_unlock(&di->fg_inst_wake_lock);
 	mutex_unlock(&di->cc_lock);
 	return ret;
 }
@@ -1333,7 +1328,7 @@ static int ab8500_comp_fg_bat_voltage(struct ab8500_fg *di,
 	defined(CONFIG_MACH_CODINA) || \
 	defined(CONFIG_MACH_GAVINI) || \
 	defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_SEC_GOLDEN) || \
-	defined(CONFIG_MACH_VENUS)
+	defined(CONFIG_MACH_VENUS)  || defined(CONFIG_MACH_SEC_SKOMER)
 	bat_res_comp = ab8500_fg_volt_to_resistance(di, vbat);
 #else
 	bat_res_comp = di->bat->bat_type[di->bat->batt_id].
@@ -1618,11 +1613,11 @@ static int ab8500_fg_calc_cap_charging(struct ab8500_fg *di)
 	} else if (di->bat_cap.permille <= 120) {
 		di->n_skip_add_sample = 1;
 	}
-	dev_dbg(di->dev, "[FG] Using every %d Vbat sample Now on %d loop\n",
+	pr_info("[FG] Using every %d Vbat sample Now on %d loop\n",
 		di->n_skip_add_sample, di->skip_add_sample);
 
 	if (++di->skip_add_sample >= di->n_skip_add_sample) {
-		dev_dbg(di->dev, "[FG] Adding voltage based samples to avg: %d\n",
+		pr_info("[FG] Adding voltage based samples to avg: %d\n",
 			di->vbat_cap.avg);
 		di->bat_cap.mah = ab8500_fg_add_cap_sample(di,
 			di->vbat_cap.avg);
@@ -1734,7 +1729,7 @@ static int ab8500_fg_calc_cap_discharge_fg(struct ab8500_fg *di)
 	} else if (di->bat_cap.permille <= 200 &&
 		di->bat_cap.permille > 100) {
 		di->n_skip_add_sample = 3;
-#if defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_SEC_GOLDEN)
+#if defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_SEC_GOLDEN)  || defined(CONFIG_MACH_SEC_SKOMER)
 	} else if (di->bat_cap.permille <= 120) {
 		di->n_skip_add_sample = 1;
 	}
@@ -2107,6 +2102,9 @@ static void ab8500_fg_check_capacity_limits(struct ab8500_fg *di, bool init)
 			 * algorithm says.
 			 */
 			di->bat_cap.prev_percent = 1;
+			di->bat_cap.permille = 1;
+			di->bat_cap.prev_mah = 1;
+			di->bat_cap.mah = 1;
 			percent = 1;
 
 			changed = true;
@@ -2504,7 +2502,7 @@ static void ab8500_fg_algorithm_discharging(struct ab8500_fg *di)
 
 		ab8500_fg_check_capacity_limits(di, false);
 
-#if defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_SEC_GOLDEN)
+#if defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_SEC_SKOMER)
 		if (DIV_ROUND_CLOSEST(di->bat_cap.permille, 10) <= 10) {
 			queue_delayed_work(di->fg_wq,
 				&di->fg_periodic_work,
@@ -2764,10 +2762,9 @@ static void ab8500_fg_algorithm(struct ab8500_fg *di)
 			di->flags.chg_timed_out,
 			di->reenable_charing);
 #else
-	dev_dbg(di->dev, "[FG_DATA] %d %d %d %d %d %d %d %d %d %d "
+	dev_dbg(di->dev, "[FG_DATA] %d %d %d %d %d %d %d %d %d "
 		"%d %d %d %d %d %d %d\n",
 		di->bat_cap.max_mah_design,
-		di->bat_cap.max_mah,
 		di->bat_cap.mah,
 		di->bat_cap.permille,
 		di->bat_cap.level,
@@ -3247,6 +3244,7 @@ static int ab8500_fg_get_property(struct power_supply *psy,
 			val->intval = di->bat_cap.prev_mah;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
+		
 #if defined( CONFIG_SAMSUNG_CHARGER_SPEC )
 		if (di->flags.fully_charged || di->flags.chg_timed_out)
 			/* Unknown Battery or Full charged */
@@ -4170,8 +4168,6 @@ static int __devinit ab8500_fg_probe(struct platform_device *pdev)
 		goto free_device_info;
 	}
 	di->pdata = plat->fg;
-
-	wake_lock_init(&di->fg_inst_wake_lock, WAKE_LOCK_SUSPEND, "ab8500_fg");
 
 	/* get battery specific platform data */
 	if (!plat->battery) {

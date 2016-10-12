@@ -33,6 +33,10 @@
 
 #include <net/bluetooth/bluetooth.h>
 
+#ifdef CONFIG_BT_CG2900
+#define CMP_OFFSET 3
+#endif
+
 void baswap(bdaddr_t *dst, bdaddr_t *src)
 {
 	unsigned char *d = (unsigned char *) dst;
@@ -57,6 +61,30 @@ char *batostr(bdaddr_t *ba)
 	return str[i];
 }
 EXPORT_SYMBOL(batostr);
+
+#ifdef CONFIG_BT_CG2900
+int strtoba(char *str, bdaddr_t *ba)
+{
+	bdaddr_t b;
+	int bnr;
+	bnr = sscanf(str,"%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
+					&b.b[0], &b.b[1], &b.b[2],
+					&b.b[3], &b.b[4], &b.b[5]);
+	if (bnr != 6 ) {
+		pr_err("Invalid BD address");
+		return -EINVAL;
+	}
+	baswap(ba, &b);
+	return 0;
+}
+EXPORT_SYMBOL(strtoba);
+
+int bacmp3(bdaddr_t *ba1, bdaddr_t *ba2)
+{
+	return memcmp(&ba1->b[CMP_OFFSET], &ba2->b[CMP_OFFSET], CMP_OFFSET);
+}
+EXPORT_SYMBOL(bacmp3);
+#endif
 
 /* Bluetooth error codes to Unix errno mapping */
 int bt_to_errno(__u16 code)

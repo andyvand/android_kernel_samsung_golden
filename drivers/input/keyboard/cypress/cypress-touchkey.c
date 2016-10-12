@@ -1036,7 +1036,7 @@ static ssize_t touch_sensitivity_control(struct device *dev,
 
 	ret = i2c_smbus_write_i2c_block_data(info->client, CYPRESS_GEN, ARRAY_SIZE(data), data);
 
-	return ret;
+	return size;
 }
 
 static DEVICE_ATTR(touchkey_firm_version_panel, S_IRUGO | S_IWUSR | S_IWGRP, touch_version_read, touch_version_write);

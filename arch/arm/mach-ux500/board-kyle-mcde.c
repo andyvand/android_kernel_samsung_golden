@@ -33,16 +33,22 @@
 #endif
 
 
-#define HVA40WV1_DRIVER_NAME		"mcde_disp_hva40wv1"
-#define BOE_WVGA_DRIVER_NAME		"mcde_disp_nt35512"
+#define HVA40WV1_DRIVER_NAME	"mcde_disp_hva40wv1"
+#define BOE_WVGA_DRIVER_NAME	"mcde_disp_nt35512"
+
+#define LCD_PANEL_TYPE_HVA40WV1	10
+#define LCD_PANEL_TYPE_NT35512	12
 
 
-#define DSI_PLL_FREQ_HZ		6156800000
 /* Based on PLL DDR Freq at 798,72 MHz */
-#define HDMI_FREQ_HZ		33280000
-#define TV_FREQ_HZ		38400000
-#define DSI_HS_FREQ_HZ		307840000
-#define DSI_LP_FREQ_HZ		19200000
+#define HDMI_FREQ_HZ			33280000
+#define TV_FREQ_HZ			38400000
+#define DSI_HS_FREQ_HZ_HVA40WV1		420160000
+#define DSI_HS_FREQ_HZ_NT35512		349440000
+#define DSI_LP_FREQ_HZ			19200000
+
+#define DSI_PLL_FREQ_HZ_HVA40WV1	(DSI_HS_FREQ_HZ_HVA40WV1 * 2)
+#define DSI_PLL_FREQ_HZ_NT35512		(DSI_HS_FREQ_HZ_NT35512 * 2)
 
 
 enum {
@@ -70,12 +76,16 @@ static void kyle_lcd_pwr_onoff(bool on)
 		gpio_direction_output(KYLE_GPIO_LCD_PWR_EN,0);
 }
 
+extern void kyle_backlight_on_off(bool on);
+
 struct sec_dsi_platform_data kyle_dsi_pri_display_info = {
 	.reset_gpio = KYLE_GPIO_LCD_RESET_N,
+	.lcd_detect = KYLE_GPIO_LCD_DETECT,
 	.bl_ctrl = false,
 	.lcd_pwr_setup = kyle_lcd_pwr_setup,
 	.lcd_pwr_onoff = kyle_lcd_pwr_onoff,
 	.min_ddr_opp = 50,
+	.bl_on_off = kyle_backlight_on_off,
 };
 
 
@@ -138,12 +148,12 @@ static struct mcde_port hva40wv1_port0 = {
 	.type = MCDE_PORTTYPE_DSI,
 	.mode = MCDE_PORTMODE_CMD,
 	.pixel_format = MCDE_PORTPIXFMT_DSI_24BPP,
-	.sync_src = MCDE_SYNCSRC_OFF,
-	.frame_trig = MCDE_TRIG_SW,
+	.sync_src = MCDE_SYNCSRC_TE0,
+	.frame_trig = MCDE_TRIG_HW,
 	.phy.dsi = {
 			.num_data_lanes = 2,
 			.host_eot_gen = true,
-			.hs_freq = DSI_HS_FREQ_HZ,
+			.hs_freq = DSI_HS_FREQ_HZ_HVA40WV1,
 			.lp_freq = DSI_LP_FREQ_HZ,
 	},
 };
@@ -176,7 +186,7 @@ static struct mcde_port nt35512_port0 = {
 		.num_data_lanes = 2,
 		.host_eot_gen = true,
 		.clk_cont = true,
-		.hs_freq = DSI_HS_FREQ_HZ,
+		.hs_freq = DSI_HS_FREQ_HZ_NT35512,
 		.lp_freq = DSI_LP_FREQ_HZ,
 	},
 };
@@ -189,6 +199,10 @@ static struct mcde_display_device nt35512_display0 = {
 	.fifo = MCDE_FIFO_A,
 	.orientation = MCDE_DISPLAY_ROT_0,
 	.default_pixel_format = MCDE_OVLYPIXFMT_RGBA8888,
+	/* +445681 display padding */
+	.x_res_padding = 0,
+	.y_res_padding = 0,
+	/* -445681 display padding */
 	.dev = {
 		.platform_data = &kyle_dsi_pri_display_info,
 	},
@@ -271,7 +285,7 @@ static void update_mcde_opp(struct device *dev,
 
 	if (req_ape != curr_reqed) {
 		prcmu_qos_update_requirement(PRCMU_QOS_APE_OPP, dev_name(dev), req_ape);
-			
+
 		dev_dbg(dev, "Requested APE QOS update to %d\n", req_ape);
 		curr_reqed = req_ape;
 	}
@@ -284,6 +298,7 @@ int __init init_kyle_display_devices(void)
 	struct clk *clk_hdmi;
 	struct clk *clk_tv;
 	struct mcde_platform_data *pdata = ux500_mcde_device.dev.platform_data;
+	unsigned long dsi_pll_freq;
 
 
 	ret = mcde_dss_register_notifier(&display_nb);
@@ -325,12 +340,22 @@ int __init init_kyle_display_devices(void)
 	 * The DSI PLL CLK is used as DSI PLL for direct freq for
 	 * link 2. Link 0/1 is then divided with 1/2/4 from this freq.
 	 */
+
+	if (lcd_type == LCD_PANEL_TYPE_HVA40WV1)
+		dsi_pll_freq = DSI_PLL_FREQ_HZ_HVA40WV1;
+	else if (lcd_type == LCD_PANEL_TYPE_NT35512)
+		dsi_pll_freq = DSI_PLL_FREQ_HZ_NT35512;
+	else {
+		printk(KERN_ERR "Display device type %d not recognised\n", lcd_type);
+		ret = -ENODEV;
+		goto error;
+	}
+
 	clk_dsi_pll = clk_get(&ux500_mcde_device.dev, "dsipll");
-	if (DSI_PLL_FREQ_HZ != clk_round_rate(clk_dsi_pll,
-						DSI_PLL_FREQ_HZ))
+	if (dsi_pll_freq != clk_round_rate(clk_dsi_pll,	dsi_pll_freq))
 		printk(KERN_ERR "%s: DSI_PLL freq differs %ld\n", __func__,
-			clk_round_rate(clk_dsi_pll, DSI_PLL_FREQ_HZ));
-	clk_set_rate(clk_dsi_pll, DSI_PLL_FREQ_HZ);
+			clk_round_rate(clk_dsi_pll, dsi_pll_freq));
+	clk_set_rate(clk_dsi_pll, dsi_pll_freq);
 	clk_put(clk_dsi_pll);
 
 	/* MCDE pixelfetchwtrmrk levels per overlay */
@@ -349,15 +374,18 @@ int __init init_kyle_display_devices(void)
 #endif
 	}
 
-	if (system_rev == KYLE_ATT_R0_0)
+	if (lcd_type == LCD_PANEL_TYPE_HVA40WV1)
 		ret = mcde_display_device_register(&hva40wv1_display0);
-	else {
+	else
 		ret = mcde_display_device_register(&nt35512_display0);
+
+		/* increased OPP required for DSI Mode panel */
 		pdata->update_opp = update_mcde_opp;
-	}
+
 	if (ret)
 		printk(KERN_ERR "Failed to register display device\n");
 
+error:
 	return ret;
 }
 

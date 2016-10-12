@@ -9,6 +9,11 @@ config SENSORS_LIS3LV02D
 	depends on INPUT
 	select INPUT_POLLDEV
 	default n
+	
+config MACH_CODINA_CHN
+	bool "Codina_chn"
+	help
+      Supports Codina_chn boards
 
 menuconfig MISC_DEVICES
 	bool "Misc devices"
@@ -599,6 +604,14 @@ config CLONEDEV_DEBUG
 	  This driver provides a way to clone content between two compdev
 	  devices.
 
+config NFC_PN544
+        bool "NXP PN544 NFC Controller Driver"
+        default n
+        help
+          NXP PN544 Near Field Communication controller support.
+
+
+
 config U5500_MBOX
 	bool "Mailbox support"
 	depends on (UX500_SOC_DB5500 && U5500_MODEM_IRQ)
@@ -611,6 +624,15 @@ config SAMSUNG_JACK
 	default n
 	---help---
 	 This is 3.5MM ear jack driver for Samsung devices on STE AB8500.
+	 If unsure, say N
+
+config SAMSUNG_JACK_SW_WATERPROOF
+	bool "prevent earjack mis-detect caused by water on STE AB8500"
+	depends on SAMSUNG_JACK
+	default n
+	---help---
+	 This is SW solution to prevent earjack mis-detect caused by water on STE AB8500.
+	 This codes should only be applied to a device that does not have a defense circuit.
 	 If unsure, say N
 
 config U8500_SIM_DETECT
@@ -626,7 +648,13 @@ config USB_SWITCHER
 	bool "USB Switch support"
 	help
 	  Say Y to enable support for USB switch devices.
-	  
+
+config TORCH_FLASH
+	bool "torch flash driver"
+	default n
+	help
+	  This driver provides torch flash function.
+
 config GENERIC_BLN
 	bool "Generic BLN support for backlight notification"
 	depends on SYSFS && EXPERIMENTAL
@@ -634,14 +662,14 @@ config GENERIC_BLN
 	help
 		Say Y here to enable the backlight notification
 		for android led-notification (modified liblight needed)
-         
+
 config GENERIC_BLN_EMULATE_BUTTONS_LED
 	bool "Emulate buttons led"
 	depends on GENERIC_BLN
 	default n
 	help
 		Say Y here to simulate buttons led
-		
+
 config GENERIC_BLN_USE_WAKELOCK
 	bool "Use a kernel wakelock to retain the leds enabled in suspend."
 	depends on GENERIC_BLN

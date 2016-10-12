@@ -52,7 +52,7 @@
 #define ABS_RAW_SHAPE                       (ABS_WHEEL)
 #define ABS_RAW_REPORT                      (ABS_GAS)
 
-#define MAGNETOMETER_POSITION_REV01	0 
+#define MAGNETOMETER_POSITION_REV01	0
 
 struct geomagnetic_data {
     struct input_dev *input_data;
@@ -522,7 +522,7 @@ geomagnetic_unlock(void)
 static void
 geomagnetic_msleep(int ms)
 {
-    msleep(ms);
+    usleep_range(ms * 1000, ms * 1100);
 }
 
 static void
@@ -1569,8 +1569,6 @@ geomagnetic_work(struct yas_mag_data *magdata)
             make_event_w_time(&ev[3], EV_SYN, 0, 0, &tv);
             sensor_event(&data->raw_devfile_list, ev, 4);
 #endif
-//	    printk("[%s] %d , %d %d %d\n", __func__, __LINE__, 
-//	    	magdata->raw.v[0], magdata->raw.v[1], magdata->raw.v[2]);
             /* report raw magnetic data */
             input_report_abs(data->input_raw, ABS_X, magdata->raw.v[0]);
             input_report_abs(data->input_raw, ABS_Y, magdata->raw.v[1]);
@@ -1746,7 +1744,7 @@ geomagnetic_probe(struct i2c_client *client, const struct i2c_device_id *id)
     data->input_data = input_data;
     input_set_drvdata(input_data, data);
     input_set_drvdata(input_raw, data);
-	
+
     data->pdata = client->dev.platform_data;
     i2c_set_clientdata(client, data);
 
@@ -1762,20 +1760,17 @@ geomagnetic_probe(struct i2c_client *client, const struct i2c_device_id *id)
     }
 
     if (hwdep_driver.set_position != NULL) {
-/*	    printk(KERN_INFO "\n magnetic sensor position hw=%d \n ", data->pdata->hw_rev);*/
-	    if ((data->pdata->hw_rev) >= 3) {
-/*			printk(KERN_INFO "\n magnetic sensor position for hw rev01 \n");*/
-       			 if (hwdep_driver.set_position(MAGNETOMETER_POSITION_REV01) < 0) {
-            		YLOGE(("hwdep_driver.set_position() failed[%d]\n", rt));
-            		goto err;
-           		}
-    } else {
-/*			printk(KERN_INFO "\n magnetic sensor position for others \n");*/
-            		if (hwdep_driver.set_position(CONFIG_INPUT_YAS_MAGNETOMETER_POSITION) < 0) {
-            		YLOGE(("hwdep_driver.set_position() failed[%d]\n", rt));
-            		goto err;
-       	 		}
-   	}
+	if ((data->pdata->hw_rev) >= 3) {
+		if (hwdep_driver.set_position(MAGNETOMETER_POSITION_REV01) < 0) {
+			YLOGE(("hwdep_driver.set_position() failed[%d]\n", rt));
+			goto err;
+		}
+	} else {
+		if (hwdep_driver.set_position(CONFIG_INPUT_YAS_MAGNETOMETER_POSITION) < 0) {
+			YLOGE(("hwdep_driver.set_position() failed[%d]\n", rt));
+			goto err;
+		}
+	}
    }
 
     if (hwdep_driver.get_offset != NULL) {

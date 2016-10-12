@@ -34,6 +34,10 @@
 #include "ux500_msp_dai.h"
 #include "../codecs/ab8500_audio.h"
 
+#ifdef CONFIG_MACH_SEC_HENDRIX
+extern int ab8500_add_mid_widget(struct snd_soc_codec *p_codec);
+#endif /* CONFIG_MACH_SEC_HENDRIX */
+
 #define TX_SLOT_MONO	0x0001
 #define TX_SLOT_STEREO	0x0003
 #define RX_SLOT_MONO	0x0001
@@ -135,11 +139,21 @@ struct amic_conf {
 	bool enabled;
 	char *name;
 };
+
+//#ifdef CONFIG_MACH_GAVINI
+/*static struct amic_conf amic_info[3] = {
+        { REGULATOR_AMIC2, false, "amic1a" },
+        { REGULATOR_AMIC1, false, "amic1b" },
+        { REGULATOR_AMIC2, false, "amic2" }
+};*/
+//#else /* default config, valid for Janice */
 static struct amic_conf amic_info[3] = {
-	{ REGULATOR_AMIC1, false, "amic1a" },
-	{ REGULATOR_AMIC1, false, "amic1b" },
-	{ REGULATOR_AMIC2, false, "amic2" }
+        { REGULATOR_AMIC1, false, "amic1a" },
+        { REGULATOR_AMIC1, false, "amic1b" },
+        { REGULATOR_AMIC2, false, "amic2" }
 };
+//#endif
+
 static DEFINE_MUTEX(amic_conf_lock);
 
 static const char *enum_amic_reg_conf[2] = { "v-amic1", "v-amic2" };
@@ -995,6 +1009,10 @@ int ux500_ab8500_machine_codec_init(struct snd_soc_pcm_runtime *rtd)
 		&mic2_regulator_control, codec));
 	snd_ctl_add(codec->card->snd_card, snd_ctl_new1(
 		&earspk_sel_control, codec));
+
+#ifdef CONFIG_MACH_SEC_HENDRIX
+	ab8500_add_mid_widget(codec);
+#endif	/* CONFIG_MACH_SEC_HENDRIX */
 
 	/* Get references to clock-nodes */
 	clk_ptr_sysclk = NULL;

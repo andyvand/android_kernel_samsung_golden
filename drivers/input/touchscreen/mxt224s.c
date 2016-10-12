@@ -464,9 +464,9 @@ static struct tsp_cmd tsp_cmds[] = {
 #define READ_FW_FROM_HEADER 1
 static u8 fw_latest[] = {0x11, 0xaa};	/* version, build_version */
 u8 fw_data[] = {
-     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+#if READ_FW_FROM_HEADER
+	#include "mxt224s__APP_v1_1_AA_.h"
+#endif
 };
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
@@ -2213,7 +2213,6 @@ static int mxt_initialize(struct mxt_data *data, bool probe_time)
 		dev_err(&client->dev, "fail to get obj tbl (%d)", ret);
 
 force_fw_update:
-/*
 	ret = mxt_load_fw(data, IN_HEADER);
 	if (ret < 0) {
 		dev_err(&client->dev, "fail to load fw (%d)", ret);
@@ -2224,8 +2223,6 @@ force_fw_update:
 
 	if (!probe_time || fw_empty || fw_latest[0] != data->info.ver ||
 	    fw_latest[1] != data->info.build) {
-*/
-	if (0) {
 
 		if (!fw_empty) {
 			ret = mxt_enter_bootloader(data);
@@ -3795,7 +3792,6 @@ err_create_mem_access:
 static void mxt_check_default_ta_status(unsigned long __data)
 {
 	struct mxt_data *data = (struct mxt_data *)__data;
-
 
 	dev_err(&data->client->dev, "initial_cable_status=0x%x\n",
 		*data->pdata->initial_cable_status);

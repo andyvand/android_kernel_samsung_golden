@@ -121,7 +121,7 @@ EXPORT_SYMBOL(clk_panic_get_rate);
 
 static int prcmu_panic_clk_enable(struct clk *clk)
 {
-	return prcmu_panic_request_clock(clk->cg_sel, true);
+//	return prcmu_panic_request_clock(clk->cg_sel, true);
 }
 
 static void prcmu_panic_clk_disable(struct clk *clk)
@@ -144,9 +144,14 @@ static void __clk_lock(struct clk *clk, void *last_lock, unsigned long *flags)
 {
 	if (clk->mutex != last_lock) {
 		if (clk->mutex == NULL)
-			spin_lock_irqsave(&clk_spin_lock, *flags);
-		else
+		{
+			if (flags != NULL)
+			{
+				spin_lock_irqsave(&clk_spin_lock, *flags);
+			}
+		} else {
 			mutex_lock(clk->mutex);
+		}
 	}
 }
 
@@ -154,22 +159,24 @@ static void __clk_unlock(struct clk *clk, void *last_lock, unsigned long flags)
 {
 	if (clk->mutex != last_lock) {
 		if (clk->mutex == NULL)
+		{
 			spin_unlock_irqrestore(&clk_spin_lock, flags);
-		else
+		} else {
 			mutex_unlock(clk->mutex);
+		}
 	}
 }
 
 void __clk_disable(struct clk *clk, void *current_lock)
 {
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	if (clk == NULL)
 		return;
 
 	__clk_lock(clk, current_lock, &flags);
 
-	if (clk->enabled && (--clk->enabled == 0)) {
+	if ((clk->enabled) && (--clk->enabled == 0)) {
 		if ((clk->ops != NULL) && (clk->ops->disable != NULL))
 			clk->ops->disable(clk);
 		__clk_disable(clk->parent, clk->mutex);
@@ -183,8 +190,8 @@ void __clk_disable(struct clk *clk, void *current_lock)
 
 int __clk_enable(struct clk *clk, void *current_lock)
 {
-	int err;
-	unsigned long flags;
+	int err = 0;
+	unsigned long flags = 0;
 
 	if (clk == NULL)
 		return 0;
@@ -225,8 +232,8 @@ bus_parent_error:
 
 unsigned long __clk_get_rate(struct clk *clk, void *current_lock)
 {
-	unsigned long rate;
-	unsigned long flags;
+	unsigned long rate = 0;
+	unsigned long flags = 0;
 
 	if (clk == NULL)
 		return 0;
@@ -293,7 +300,7 @@ EXPORT_SYMBOL(clk_get_rate);
 long clk_round_rate(struct clk *clk, unsigned long rate)
 {
 	long rounded_rate;
-	unsigned long flags;
+	unsigned long flags = 0;
 
 	if (clk == NULL)
 		return -EINVAL;

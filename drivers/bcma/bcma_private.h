@@ -3,12 +3,14 @@
 
 #ifndef pr_fmt
 #define pr_fmt(fmt)		KBUILD_MODNAME ": " fmt
-#endif
+#endif /* pr_fmt */
 
 #include <linux/bcma/bcma.h>
 #include <linux/delay.h>
 
+#ifndef BCMA_CORE_SIZE
 #define BCMA_CORE_SIZE		0x1000
+#endif /* BCMA_CORE_SIZE */
 
 struct bcma_bus;
 
@@ -25,4 +27,5 @@ extern int __init bcma_host_pci_init(void);
 extern void __exit bcma_host_pci_exit(void);
 #endif /* CONFIG_BCMA_HOST_PCI */
 
-#endif
+#endif /* LINUX_BCMA_PRIVATE_H_ */
+

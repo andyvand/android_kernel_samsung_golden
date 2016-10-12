@@ -601,7 +601,11 @@ static struct ab8500_regulator_reg_init	golden_ab8505_reg_init[] = {
 	 * VsmpsAAutoMode
 	 * VsmpsAPWMMode
 	 */
+#if 0
 	INIT_REGULATOR_REGISTER(AB8505_VSMPSAREGU,             0x0f, 0x06),
+#else
+	INIT_REGULATOR_REGISTER(AB8505_VSMPSAREGU,             0x0f, 0x05),
+#endif
 	/*
 	 * VsmpsBRegu
 	 * VsmpsBSelCtrl

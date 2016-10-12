@@ -206,6 +206,9 @@ struct hci_dev {
 	unsigned int	sco_pkts;
 	unsigned int	le_pkts;
 
+#ifdef CONFIG_BT_CG2900
+	__u16	reinitiate_handle;
+#endif
 	unsigned long	acl_last_tx;
 	unsigned long	sco_last_tx;
 	unsigned long	le_last_tx;
@@ -214,11 +217,17 @@ struct hci_dev {
 
 	struct work_struct	power_on;
 	struct delayed_work power_off;
+#ifdef CONFIG_BT_CG2900
+	struct work_struct	reinitiate_auth;
+#endif
 
 	__u16			discov_timeout;
 	struct delayed_work	discov_off;
 
 	struct delayed_work	service_cache;
+#ifdef CONFIG_BT_CG2900
+	struct timer_list	reinitiate_auth_timer;
+#endif
 
 	struct timer_list	cmd_timer;
 	struct tasklet_struct	cmd_task;
@@ -246,6 +255,9 @@ struct hci_dev {
 	struct discovery_state	discovery;
 	struct hci_conn_hash	conn_hash;
 	struct list_head	blacklist;
+#ifdef CONFIG_BT_CG2900
+	struct list_head	rs_blacklist;
+#endif
 
 	struct list_head	uuids;
 
@@ -331,6 +343,9 @@ struct hci_conn {
 	__u8		remote_cap;
 	__u8		remote_oob;
 	__u8		remote_auth;
+#ifdef CONFIG_BT_CG2900
+	bool		flush_key;
+#endif
 
 	unsigned int	sent;
 
@@ -638,6 +653,13 @@ int hci_blacklist_clear(struct hci_dev *hdev);
 /* sync from bluez git */
 int hci_blacklist_add(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 type);
 int hci_blacklist_del(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 type);
+
+#ifdef CONFIG_BT_CG2900
+int hci_rs_blacklist_lookup(struct hci_dev *hdev, bdaddr_t *bdaddr);
+int hci_rs_blacklist_add(struct hci_dev *hdev, bdaddr_t *bdaddr);
+int hci_rs_blacklist_clear(struct hci_dev *hdev);
+int hci_rs_blacklist_create(struct hci_dev *hdev);
+#endif
 
 int hci_uuids_clear(struct hci_dev *hdev);
 
@@ -1009,7 +1031,11 @@ int mgmt_discoverable(struct hci_dev *hdev, u8 discoverable);
 int mgmt_connectable(struct hci_dev *hdev, u8 connectable);
 int mgmt_write_scan_failed(struct hci_dev *hdev, u8 scan, u8 status);
 int mgmt_new_link_key(struct hci_dev *hdev, struct link_key *key,
+#ifdef CONFIG_BT_CG2900
+								bool persistent);
+#else
 								u8 persistent);
+#endif
 int mgmt_device_connected(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 link_type,
 					u8 addr_type, u8 *name, u8 name_len,
 					u8 *dev_class);
@@ -1066,6 +1092,14 @@ int mgmt_remote_features(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 features[8])
 int mgmt_read_rssi_complete(struct hci_dev *hdev, bdaddr_t *bdaddr, s8 rssi, u8 status);
 int mgmt_read_rssi_failed(struct hci_dev *hdev);
 int mgmt_le_test_end_complete(struct hci_dev *hdev, u8 status, __u16 num_pkts);
+#ifdef CONFIG_BT_CG2900
+int mgmt_flow_spec_complete(struct hci_dev *hdev, u16 handle, u8 status,
+					u16 direction, u16 service_type,
+					u32 token_rate, u32 token_bucket_size,
+					u32 peak_bandwidth, u32 access_latency);
+int mgmt_vs_ext_flow_spec_complete(struct hci_dev *hdev, __u16 handle, u8 status,
+					uint16_t interval, uint16_t window);
+#endif
 
 /* HCI info for socket */
 #define hci_pi(sk) ((struct hci_pinfo *) sk)

@@ -340,11 +340,29 @@ config COMPAT_WIRELESS_MODULES
        ---help---
          To compile this code as a module, choose M here.
 
+config WIRELESS_EXT
+       bool "Wireless ext support"
+       ---help---
+         Enable this option for wireless ext support.
+
+config WEXT_CORE
+	def_bool y
+	depends on CFG80211_WEXT || WIRELESS_EXT
+
 config CFG80211
        tristate "Compat CFG80211"
        default n
        ---help---
          To compile this code as a module, choose M here.
+
+config CFG80211_WEXT
+       bool "cfg80211 wireless extensions compatibility"
+       depends on CFG80211
+       select WEXT_CORE
+       default y
+       ---help---
+         Enable this option if you need old userspace for wireless
+         extensions with cfg80211-based drivers.
 
 config MAC80211
        tristate "Compat MAC80211"
@@ -469,6 +487,13 @@ config CW1200_U5500_SUPPORT
       help
         Say Y if you want to enable wlan on u5500 platform support.
         If unsure, say N.
+
+config CW1200_TESTMODE
+     bool "Enable CW1200 testmode support"
+     depends on CW1200
+     help
+     Say Y if you want to include CW1200 testmode code.
+     If unsure, say N.
 
 menu "Driver debug features"
       depends on CW1200

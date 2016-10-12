@@ -42,10 +42,7 @@
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #include <linux/earlysuspend.h>
 #endif
-
-// TODO: We must investigate the real origin of the screen tearing issue,
-// this is just a dirty hack I don't like anywhere
-#define VID_MODE_REFRESH_RATE 65
+#define VID_MODE_REFRESH_RATE 60
 
 //#undef dev_dbg
 //#define dev_dbg dev_info
@@ -596,7 +593,7 @@ static int s6e63m0_dsi_set_brightness(struct backlight_device *bd)
 	struct s6e63m0_dsi_lcd *lcd = bl_get_data(bd);
 
 	/*Protection code for  power on /off test */
-	if(lcd->ddev <= 0)
+	if((lcd->ddev <= 0) || (lcd->dev <= 0))
 		return ret;
 
 	if ((brightness < 0) ||	(brightness > bd->props.max_brightness)) {
@@ -1035,6 +1032,12 @@ static int s6e63m0_dsi_display_update(struct mcde_display_device *ddev,
 {
 	int ret = 0;
 
+	struct s6e63m0_dsi_lcd *lcd = dev_get_drvdata(&ddev->dev);
+
+	/*Protection code for  power on /off test */
+	if((lcd->ddev <= 0) || (lcd->dev <= 0))
+		return ret;
+
 	if (ddev->power_mode != MCDE_DISPLAY_PM_ON && ddev->set_power_mode) {
 		ret = ddev->set_power_mode(ddev, MCDE_DISPLAY_PM_ON);
 		if (ret < 0) {
@@ -1448,7 +1451,7 @@ device_attribute *attr, const char *buf, size_t size)
 	int rc;
 	
 	/*Protection code for  power on /off test */
-	if(lcd->ddev <= 0)
+	if((lcd->ddev <= 0) || (lcd->dev <= 0))
 		return size;
 	
 	rc = strict_strtoul(buf, (unsigned int) 0, (unsigned long *)&value);

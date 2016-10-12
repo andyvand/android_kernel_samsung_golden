@@ -368,12 +368,14 @@ struct ab8500_charger_info {
 	int charging_reenabled;
 	int vbus_drop_count;
 	int input_current_limit;
+	int usbnotok_count;
 
 	struct ab8500_gpadc *gpadc;
 	struct ab8500_charger_event_flags flags;
 	struct workqueue_struct *charger_wq;
 	struct delayed_work check_hw_failure_work;
 	struct delayed_work check_hw_failure_delay_work;
+	struct delayed_work reset_chg_counter_work;
 	struct delayed_work kick_wd_work;
 	struct delayed_work chg_attached_work;
 	struct delayed_work handle_vbus_voltage_drop_work;

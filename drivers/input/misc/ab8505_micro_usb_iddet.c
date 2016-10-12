@@ -142,6 +142,8 @@
 #define IDPU10KSWENA			0x08
 #define USBLINECTRL2			0x82
 #define USBCHARGDETENA			0x01
+#define CHARGERMUXCTRL			0x40
+#define DMPD19ENA			0x80
 #define TURNONSTATUS			0x00
 
 #define CTRLUSBUICCPUD			0x54
@@ -166,11 +168,19 @@
 #define CURRENT_LIMIT_CKT_TYPE2		950
 #define CURRENT_LIMIT_DESKTOP_DOCK     950
 #define CURRENT_LIMIT_LEGACY_CHARGER	1500
+#define CURRENT_LIMIT_ATNT_CHARGER	600
+#define CURRENT_LIMIT_PLEOMAX_CHARGER	2000
 #define UART_BOOT_OFF_MIN	445
 #define UART_BOOT_ON_MAX	800
 #define HEADSET_MAX		1158
 
+#define ITMASK12			0x4B
+#define MASKIT_USBLINKSTATUS 		0x80
+#define LSTS_CARKIT_TYPE1	20
+#define LSTS_CHARGER		7
+
 extern void set_android_switch_state(int state);
+extern int deepest_allowed_state;
 
 enum irq_type_e {
 	CABLE_PLUG,
@@ -268,7 +278,7 @@ static struct device *fsa_temp;
 
 extern int jig_smd;
 
-#if defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_CODINA)
+#if defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_SEC_SKOMER)
 extern int use_ab8505_iddet;
 #endif
 
@@ -618,6 +628,12 @@ static int uart_boot_off(struct usb_accessory_state *accessory, bool connected)
 			connected ? "PLUGGED" : "UNPLUGGED");
 	acessory_func_list[USBSWITCH_UART](accessory, connected);
 
+#if defined(CONFIG_MACH_SEC_KYLE)
+	/* When JIG-UART unplugged */
+	if (!connected)
+		deepest_allowed_state = CONFIG_DBX500_CPUIDLE_DEEPEST_STATE;
+	printk(KERN_INFO "%s : deepest_allowed_state = %d\n", __func__, deepest_allowed_state);
+#endif
 	return 0;
 }
 
@@ -628,6 +644,12 @@ static int uart_boot_on(struct usb_accessory_state *accessory, bool connected)
 	dev_info(dev, "UART Boot-ON %s\n", connected ? "PLUGGED" : "UNPLUGGED");
 	acessory_func_list[USBSWITCH_UART](accessory, connected);
 
+#if defined(CONFIG_MACH_SEC_KYLE)
+	/* When JIG-UART unplugged */
+	if (!connected)
+		deepest_allowed_state = CONFIG_DBX500_CPUIDLE_DEEPEST_STATE;
+	printk(KERN_INFO "%s : deepest_allowed_state = %d\n", __func__, deepest_allowed_state);
+#endif	
 	return 0;
 }
 
@@ -1243,6 +1265,28 @@ static int desktop_dev_dock(struct usb_accessory_state *accessory,
 
 	return ret;
 }
+
+static int atnt_charger(struct usb_accessory_state *accessory,
+		bool connected)
+{
+	struct device *dev = accessory->dev;
+	unsigned int current_limit;
+
+	dev_info(dev, "AT&T %s\n", connected ? "PLUGGED" : "UNPLUGGED");
+
+	current_limit = (connected ? CURRENT_LIMIT_ATNT_CHARGER : 0);
+
+	/* Notify AT&T charger plug status*/
+	blocking_notifier_call_chain(&micro_usb_notifier_list,
+			connected ? ATNT_CHARGER_PLUGGED: ATNT_CHARGER_UNPLUGGED, &current_limit);
+	if (connected)
+		accessory_claim_irq(VBUS_F, accessory);
+	else
+		accessory_release_irq(VBUS_F, accessory);
+
+	return 0;
+}
+
 static int cable_unknown(struct usb_accessory_state *accessory, bool connected)
 {
 	struct device *dev = accessory->dev;
@@ -1250,6 +1294,12 @@ static int cable_unknown(struct usb_accessory_state *accessory, bool connected)
 
 	dev_warn(dev, "Unknown Cable %s\n", connected ? "PLUGGED" :
 			"UNPLUGGED");
+	/*
+	 *usb_otg_ctrl_lock is required incase of cut1,
+	 * donot do anything for cut2 and above
+	 */
+	if (is_ab8505_2p0_earlier(accessory->parent) ||
+		is_ab9540_2p0_or_earlier(accessory->parent)) {
 
 	mutex_lock(&accessory->usb_otg_ctrl_lock);
 	if (accessory->usb_otg_ctrl) {
@@ -1281,6 +1331,7 @@ static int cable_unknown(struct usb_accessory_state *accessory, bool connected)
 		}
 	}
 	mutex_unlock(&accessory->usb_otg_ctrl_lock);
+	}
 	return 0;
 }
 
@@ -1304,6 +1355,26 @@ static int legacy_charger(struct usb_accessory_state *accessory, bool connected)
 	return 0;
 }
 
+static int pleomax_charger(struct usb_accessory_state *accessory, bool connected)
+{
+	struct device *dev = accessory->dev;
+	/* Current limit is in milli amp*/
+	unsigned int current_limit = CURRENT_LIMIT_PLEOMAX_CHARGER;
+
+	dev_info(dev, "PLEOMAX charger %s\n", connected ? "PLUGGED" :
+			"UNPLUGGED");
+
+	if (connected)
+		accessory_claim_irq(VBUS_F, accessory);
+	else
+		accessory_release_irq(VBUS_F, accessory);
+
+	blocking_notifier_call_chain(&micro_usb_notifier_list,
+			connected ? PLEOMAX_CHARGER_PLUGGED :
+			PLEOMAX_CHARGER_UNPLUGGED, &current_limit);
+	return 0;
+}
+
 /* Callbacks for the type of cable connected */
 static int (*acessory_func_list[])(struct usb_accessory_state *, bool) = {
 	[USBSWITCH_UART_BOOT_ON] = uart_boot_on,
@@ -1318,8 +1389,10 @@ static int (*acessory_func_list[])(struct usb_accessory_state *, bool) = {
 	[USBSWITCH_CARKIT_TYPE2] = carkit_dev_type2,
 	[USBSWITCH_PPD] = phone_powered_device,
 	[USBSWITCH_DESKTOP_DOCK] = desktop_dev_dock,
+	[USBSWITCH_PLEOMAX_CHARGER] = pleomax_charger,
 	[USBSWITCH_UNKNOWN] = cable_unknown,
-	[USBSWITCH_USBHOST] = legacy_charger,
+	[USBSWITCH_USBHOST] = cable_unknown,
+        [USBSWITCH_ATNT_CHARGER] = atnt_charger,
 };
 
 static  bool read_fm_comparator(struct usb_accessory_state *accessory)
@@ -1413,8 +1486,7 @@ static int detect_depending_on_id_resistance(struct usb_accessory_state
 	struct cust_rid_adcid *p;
 	int id_voltage;
 	struct device *dev = accessory->dev;
-	int count = 0 ;
-start:
+
 	/* 1microAmp pull up enable  */
 	ret = abx500_mask_and_set(dev, AB8505_CHARGER,
 				REGIDDETCTRL2, IDDETPU1ENA,
@@ -1528,62 +1600,205 @@ start:
 		goto detected;
 
 	}
-	/*
-	 * To handle dock detect, Some times we see high GPADC values when dock
-	 * is plugged, so try for another GPADC read in this case.
-	 */
-	else if ((accessory->lsts == 19 || accessory->lsts == 0)) {
-		msleep(200);
-		ret = abx500_mask_and_set(dev, AB8505_USB, USBLINECTRL2,
-				USBCHARGDETENA, 0x00);
-		if (ret < 0) {
-			dev_err(dev, "%s write failed %d\n",
-					__func__, __LINE__);
-			return;
-		}
-		msleep(1);
-		/* Disable host, device detection and enable VBUS Valid comporator */
-		ret = abx500_mask_and_set(dev, AB8505_USB,
-				USBOTGCTRL, IDDEVENA, 0x0);
-		if (ret < 0) {
-			dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
-			return ;
-		}
-		msleep(1);
-		/* Set iddet IP SW controllable */
-		ret = abx500_mask_and_set(dev, AB8505_CHARGER,
-				REGIDDETCTRL3, IDDETSWCTRLENA, IDDETSWCTRLENA);
-		if (ret < 0) {
-			dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
-			return;
-		}
-		msleep(1);
-		/* */
-		ret = abx500_mask_and_set(dev, AB8505_USB,
-				USBLINECTRL1, 0x02, 0x02);
-		if (ret < 0)
-			dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
-		msleep(100);
-		count++;
-		if (count < COUNT_GPADC_FAIL_TRY)
-			goto start;
-	}
 
 	accessory->cable_detected = USBSWITCH_UNKNOWN;
-
 detected:
 	/* Disconnect ID line to GPADC input */
 	ret = abx500_mask_and_set(dev, AB8505_USB,
 				USBLINECTRL1, IDDETADCENA, 0);
 	if (ret < 0)
 		dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
-
+	/* */
 	ret = abx500_mask_and_set(dev, AB8505_USB,
-				USBLINECTRL1, 0x2, 0x2);
+			USBLINECTRL1, 0x02, 0x02);
 	if (ret < 0)
 		dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
 
+	if (accessory->cable_detected == USBSWITCH_CARKIT_TYPE1) {
+		printk(" in %s link_status = %d\n", __func__, accessory->lsts);
+		accessory->cable_detected = USBSWITCH_UNKNOWN;
+		if(accessory->lsts == LSTS_CARKIT_TYPE1)
+			accessory->cable_detected = USBSWITCH_CARKIT_TYPE1;
+		else if(accessory->lsts == LSTS_CHARGER)
+			accessory->cable_detected = USBSWITCH_ATNT_CHARGER;
+	}
 	return ret;
+}
+
+static int detect_wrong_cables(struct usb_accessory_state *accessory)
+{
+
+	struct device *dev = accessory->dev;
+	unsigned char count;
+	int timeoutval;
+	long timeout = msecs_to_jiffies(500);   //700ms
+	int ret;
+	char rerun_usbdet;
+	unsigned char vbusdet;
+	unsigned char usblink1status;
+	int lsts;
+
+	rerun_usbdet = 0;
+start:
+	count = 2;
+	/* read VbusDet state */
+	ret = abx500_get(dev, AB8505_INTERRUPT, ITSOURCE2, &vbusdet);
+	if (ret < 0) {
+		dev_err(dev, "%s read failed %d\n", __func__,
+				__LINE__);
+		return ret;
+	}
+	vbusdet &= VBUSDET;
+
+	ret = abx500_get(dev, AB8505_USB, USBLINK1STATUS, &usblink1status);
+	if (ret < 0) {
+		dev_err(dev, "%s read failed %d\n", __func__, __LINE__);
+		return ret;
+	}
+	lsts = (usblink1status >> 3);
+
+	if ((lsts == 0 || lsts == 19 || lsts == 15) && accessory->cable_detected == USBSWITCH_UNKNOWN && vbusdet) {
+
+		/* 1microAmp current source pull up disable */
+		ret = abx500_mask_and_set(dev, AB8505_CHARGER,
+				REGIDDETCTRL2, IDDETPU1ENA,
+				0x00);
+		if (ret < 0) {
+			dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+			return ret;
+		}
+		/* Disable ID detect comparator */
+		ret = abx500_mask_and_set(dev, AB8505_CHARGER,
+				REGIDDETCTRL1, PLUGDETCOMPENA,
+				0x00);
+		if (ret < 0) {
+			dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+			return ret;
+		}
+
+		/* Set iddet IP HW controllable */
+		ret = abx500_mask_and_set(dev, AB8505_CHARGER,
+				REGIDDETCTRL3, IDDETSWCTRLENA, 0x00);
+		if (ret < 0) {
+			dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+			return ret;
+		}
+
+		/*Enable IDDEVENA */
+		ret = abx500_mask_and_set(dev, AB8505_USB,
+				USBOTGCTRL, IDDEVENA, IDDEVENA);
+		if (ret < 0) {
+			dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+			return ret;
+		}
+
+		ret = abx500_mask_and_set(dev, AB8505_USB, USBLINECTRL2,
+			USBCHARGDETENA, USBCHARGDETENA);
+		if (ret < 0) {
+			dev_err(dev, "%s write failed %d\n",
+					__func__, __LINE__);
+			return ret;
+		}
+
+		/*Mask USBLINKSTATUS interrupt*/
+		ret = abx500_mask_and_set(dev, AB8505_INTERRUPT,
+				ITMASK12, MASKIT_USBLINKSTATUS, MASKIT_USBLINKSTATUS);
+		if (ret < 0) {
+			dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+			return ret ;
+		}
+
+		mdelay(10);
+
+		/*Unmask USBLINKSTATUS interrupt*/
+		ret = abx500_mask_and_set(dev, AB8505_INTERRUPT,
+				ITMASK12,MASKIT_USBLINKSTATUS, 0);
+
+		/* wait for linkstatus interrupt*/
+		accessory->wait_event_lsts = true;
+		while (count) {
+			/* wait for linkstatsu interrupt*/
+			timeoutval = wait_event_interruptible_timeout(accessory->wait,
+					(!accessory->wait_event_lsts), timeout);
+			if (!timeoutval)
+				dev_info(dev, "%s Link status Time out happend %d\n",
+						__func__, __LINE__);
+			else
+				break;
+			count--;
+		}
+
+		/* Disable UsbChargDetEna */
+		ret = abx500_mask_and_set(dev, AB8505_USB, USBLINECTRL2,
+			USBCHARGDETENA | CHARGERMUXCTRL | DMPD19ENA, 0x00);
+		if (ret < 0) {
+			dev_err(dev, "%s write failed %d\n",
+					__func__, __LINE__);
+			return ret;
+		}
+		/* set 0x0583 to 0 */
+		abx500_set(dev, AB8500_USB, 0x83, 0x00);
+
+		/* Clear the IDHostEna, IDDevEna register content */
+		ret = abx500_set(dev, AB8505_USB, USBOTGCTRL, 0x20);
+		if (ret < 0) {
+			dev_err(dev, "%s write failed %d\n", __func__,
+					__LINE__);
+			return ret;
+		}
+
+		/* Set iddet IP SW controllable */
+		ret = abx500_mask_and_set(dev, AB8505_CHARGER,
+				REGIDDETCTRL3, IDDETSWCTRLENA, IDDETSWCTRLENA);
+		if (ret < 0) {
+			dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+			return ret;
+		}
+
+		accessory->cable_detected = USBSWITCH_NONE;
+
+		ret = detect_depending_on_id_resistance(accessory);
+		if (ret < 0) {
+			dev_err(dev, "%s detection failed %d\n", __func__, __LINE__);
+			return ret;
+		}
+		ret = abx500_get(dev, AB8505_USB, USBLINK1STATUS, &usblink1status);
+		if (ret < 0) {
+			dev_err(dev, "%s read failed %d\n", __func__, __LINE__);
+			return ret;
+		}
+		lsts = (usblink1status >> 3);
+
+		if ((lsts == 0 || lsts == 19 || lsts == 15) && accessory->cable_detected == USBSWITCH_UNKNOWN) {
+			rerun_usbdet++;
+			if (rerun_usbdet < 3)
+				goto start;
+		}
+	}
+	printk("lsts = %d, cable_detected = %d\n", lsts, accessory->cable_detected);
+
+
+	ret = abx500_mask_and_set(dev, AB8505_USB,
+			USBLINECTRL1, 0x02, 0x02);
+	if (ret < 0) {
+		dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+		return ret;
+	}
+
+	/* Disable UsbChargDetEna */
+	ret = abx500_mask_and_set(dev, AB8505_USB, USBLINECTRL2,
+		USBCHARGDETENA | CHARGERMUXCTRL | DMPD19ENA, 0x00);
+	if (ret < 0) {
+		dev_err(dev, "%s write failed %d\n",
+				__func__, __LINE__);
+		return ret;
+	}
+
+	/* set 0x0583 to 0 */
+	abx500_set(dev, AB8500_USB, 0x83, 0x00);
+	mdelay(2);
+
+	return 0;
 }
 
 /*
@@ -1600,9 +1815,52 @@ static void dock_plug_detect(struct work_struct *work)
 	struct device *dev = accessory->dev;
 	unsigned char count = 4;
 	int timeoutval;
-	long timeout = msecs_to_jiffies(500);   //700ms
+	long timeout = msecs_to_jiffies(500);   //500ms
 	unsigned char usblink1status;
 	unsigned char vbusdet;
+	int lsts;
+
+	/*Mask USBLINKSTATUS interrupt*/
+	ret = abx500_mask_and_set(dev, AB8505_INTERRUPT,
+			ITMASK12, MASKIT_USBLINKSTATUS, MASKIT_USBLINKSTATUS);
+	if (ret < 0) {
+		dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+		return;
+	}
+
+	/* 1microAmp current source pull up disable */
+	ret = abx500_mask_and_set(dev, AB8505_CHARGER,
+				REGIDDETCTRL2, IDDETPU1ENA,
+				0x00);
+	if (ret < 0) {
+		dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+		return;
+	}
+	/* Disable ID detect comparator */
+	ret = abx500_mask_and_set(dev, AB8505_CHARGER,
+			REGIDDETCTRL1, PLUGDETCOMPENA,
+			0x00);
+	if (ret < 0) {
+		dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+		return;
+	}
+
+	/* Set iddet IP HW controllable */
+	ret = abx500_mask_and_set(dev, AB8505_CHARGER,
+			REGIDDETCTRL3, IDDETSWCTRLENA, 0x00);
+	if (ret < 0) {
+		dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+		return;
+	}
+
+	/*Enable IDDEVENA */
+	ret = abx500_mask_and_set(dev, AB8505_USB,
+			USBOTGCTRL, IDDEVENA, IDDEVENA);
+	mdelay(10);
+
+	/*Unmask USBLINKSTATUS interrupt*/
+	ret = abx500_mask_and_set(dev, AB8505_INTERRUPT,
+			ITMASK12,MASKIT_USBLINKSTATUS, 0);
 
 	accessory->wait_event_lsts1 = true;
 	while (count) {
@@ -1632,15 +1890,30 @@ static void dock_plug_detect(struct work_struct *work)
 		count--;
 	}
 	accessory->wait_event_lsts1 = false;
-	mdelay(50);
 
 	dev_info(dev, "%s going to detect cable connected \n",__func__);
 	accessory_release_irq(CABLE_PLUG, accessory);
 	accessory_release_irq(CABLE_UNPLUG, accessory);
 
-	get_ctrl_from_fsmcharger(accessory);
 
-	accessory->cable_detected = USBSWITCH_NONE;
+	/* Disable UsbChargDetEna */
+	ret = abx500_mask_and_set(dev, AB8505_USB, USBLINECTRL2,
+			USBCHARGDETENA | CHARGERMUXCTRL | DMPD19ENA, 0x00);
+	if (ret < 0) {
+		dev_err(dev, "%s write failed %d\n",
+				__func__, __LINE__);
+		return;
+	}
+	/* set 0x0583 to 0 */
+	abx500_set(dev, AB8500_USB, 0x83, 0x00);
+
+	/* Clear the IDHostEna, IDDevEna register content */
+	ret = abx500_set(dev, AB8505_USB, USBOTGCTRL, 0x20);
+	if (ret < 0) {
+		dev_err(dev, "%s write failed %d\n", __func__,
+				__LINE__);
+		return;
+	}
 
 	/* Set iddet IP SW controllable */
 	ret = abx500_mask_and_set(dev, AB8505_CHARGER,
@@ -1650,13 +1923,7 @@ static void dock_plug_detect(struct work_struct *work)
 		return;
 	}
 
-	/* 1microAmp current source pull up disable */
-	ret = abx500_mask_and_set(dev, AB8505_CHARGER,
-			REGIDDETCTRL2, IDDETPU1ENA, 0x0);
-	if (ret < 0) {
-		dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
-		return;
-	}
+	accessory->cable_detected = USBSWITCH_NONE;
 
 	ret = detect_depending_on_id_resistance(accessory);
 	if (ret < 0) {
@@ -1671,65 +1938,108 @@ static void dock_plug_detect(struct work_struct *work)
 		dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
 		return;
 	}
+	/* Enable ID detect comparator */
+	ret = abx500_mask_and_set(dev, AB8505_CHARGER,
+			REGIDDETCTRL1, PLUGDETCOMPENA,
+			PLUGDETCOMPENA);
+	if (ret < 0) {
+		dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+		return;
+	}
 
-	blocking_notifier_call_chain(&micro_usblinkstatus_notifier_usb,
-			accessory->lsts, NULL);
 	dev_info(dev, "Cable ID Detected present %d last %d\n",
 			accessory->cable_detected,
 			accessory->cable_last_detected);
 
 	if (accessory->cable_detected == USBSWITCH_UNKNOWN) {
 
-		accessory->cable_detected = USBSWITCH_NONE;
-		dev_info(dev, "\n no cable detected, check if it can be legacy charger\n");
-		/* Set iddet IP HW controllable */
-		ret = abx500_mask_and_set(dev, AB8505_CHARGER,
-				REGIDDETCTRL3, IDDETSWCTRLENA, 0x00);
+		ret = detect_wrong_cables(accessory);
 		if (ret < 0) {
-			dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+			dev_err(dev, "%s detect_wrong_cables failed %d\n",
+					__func__, __LINE__);
 			return;
 		}
+		if (accessory->cable_detected != USBSWITCH_UNKNOWN) {
+			/* 1microAmp current source pull up enable */
+			ret = abx500_mask_and_set(dev, AB8505_CHARGER,
+					REGIDDETCTRL2, IDDETPU1ENA, IDDETPU1ENA);
+			if (ret < 0) {
+				dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+				return;
+			}
+			/* Enable ID detect comparator */
+			ret = abx500_mask_and_set(dev, AB8505_CHARGER,
+					REGIDDETCTRL1, PLUGDETCOMPENA,
+					PLUGDETCOMPENA);
+			if (ret < 0) {
+				dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
+				return;
+			}
+			goto detected;
+		}
+		accessory->cable_detected = USBSWITCH_NONE;
+
 		ret = abx500_get(dev, AB8505_USB, USBLINK1STATUS, &usblink1status);
 		if (ret < 0) {
 			dev_err(dev, "%s read failed %d\n", __func__, __LINE__);
 			return;
 		}
-		if(!usblink1status) {
-			/* read VbusDet state */
-			ret = abx500_get(dev, AB8505_INTERRUPT, ITSOURCE2, &vbusdet);
-			if (ret < 0) {
-				dev_err(dev, "%s read failed %d\n", __func__,
-						__LINE__);
-				return;
-			}
-			vbusdet &= VBUSDET;
-			if (vbusdet){
-				accessory->cable_detected = USBSWITCH_LEGACY_CHARGER;
-				if (accessory->cable_detected ==
-						accessory->cable_last_detected)
-					return;
+		lsts = (usblink1status >> 3);
 
-				if (accessory->cable_last_detected != USBSWITCH_NONE &&
-					accessory->cable_last_detected != USBSWITCH_USBHOST &&
-					accessory->cable_last_detected != USB_CABLE)
-					/* Call restore callback for the last connected device */				
-					acessory_func_list[accessory->cable_last_detected]
-						(accessory, false);
-				accessory->cable_last_detected =
-					accessory->cable_detected;
+		dev_info(dev, "\n check if it can be legacy/pleomax charger lsts = %d\n",lsts);
+		blocking_notifier_call_chain(&micro_usblinkstatus_notifier_usb,
+				lsts, NULL);
+
+		/* read VbusDet state */
+		ret = abx500_get(dev, AB8505_INTERRUPT, ITSOURCE2, &vbusdet);
+		if (ret < 0) {
+			dev_err(dev, "%s read failed %d\n", __func__,
+					__LINE__);
+			return;
+		}
+		vbusdet &= VBUSDET;
+
+		if((lsts == 0 || lsts == 19) && vbusdet) {
+			if (lsts == 0)
+				accessory->cable_detected =
+					USBSWITCH_LEGACY_CHARGER;
+			else
+				accessory->cable_detected =
+					USBSWITCH_PLEOMAX_CHARGER;
+			if (accessory->cable_detected ==
+					accessory->cable_last_detected)
+				return;
+
+			if (accessory->cable_last_detected != USBSWITCH_NONE &&
+				accessory->cable_last_detected != USBSWITCH_USBHOST &&
+				accessory->cable_last_detected != USB_CABLE)
+				/* Call restore callback for the last connected device */
 				acessory_func_list[accessory->cable_last_detected]
-					(accessory, true);
-				accessory->handle_plug_irq =  false;
-				accessory_claim_irq(CABLE_PLUG, accessory);
-			}
+					(accessory, false);
+			accessory->cable_last_detected =
+				accessory->cable_detected;
+			acessory_func_list[accessory->cable_last_detected]
+				(accessory, true);
+			accessory->handle_plug_irq =  false;
+			accessory_claim_irq(CABLE_PLUG, accessory);
 		}
 		else {
 			mdelay(1);
 			accessory->handle_plug_irq =  true;
+			accessory->cable_last_detected = accessory->cable_detected;
 			accessory_claim_irq(CABLE_PLUG, accessory);
 		}
 		return;
 	}
+detected:
+	ret = abx500_get(dev, AB8505_USB, USBLINK1STATUS, &usblink1status);
+	if (ret < 0) {
+		dev_err(dev, "%s read failed %d\n", __func__, __LINE__);
+		return;
+	}
+	lsts = (usblink1status >> 3);
+	blocking_notifier_call_chain(&micro_usblinkstatus_notifier_usb,
+			lsts, NULL);
 
 	/* Incase of two plug interrupt without unplug interrupt */
 	if (accessory->cable_detected == accessory->cable_last_detected) {
@@ -1759,9 +2069,24 @@ static void accessory_plug_detect(struct kthread_work *work)
 	unsigned char usblink1status;
 	unsigned char count = 3;
 	int timeoutval;
-	long timeout = msecs_to_jiffies(500);  //700ms
+	long timeout = msecs_to_jiffies(300);  //700ms
 	unsigned char vbusdet;
 
+	/* give priority to VBUS interupt than IDPLUG*/
+	msleep(200);
+
+	/* read VbusDet state */
+	ret = abx500_get(dev, AB8505_INTERRUPT, ITSOURCE2, &vbusdet);
+	if (ret < 0) {
+		dev_err(dev, "%s read failed %d\n", __func__,
+				__LINE__);
+		return;
+	}
+	vbusdet &= VBUSDET;
+	if (vbusdet) {
+		dev_info(dev, " vbus so returning from %s\n",__func__);
+		return;
+	}
 	give_ctrl_to_fsmcharger(accessory);
 	/* wait for linkstatsu interrupt*/
 	accessory->wait_event_lsts = true;
@@ -1798,25 +2123,10 @@ static void accessory_plug_detect(struct kthread_work *work)
 		}
 	}
 	accessory->wait_event_lsts = false;
-	/* read VbusDet state */
-	ret = abx500_get(dev, AB8505_INTERRUPT, ITSOURCE2, &vbusdet);
-	if (ret < 0) {
-		dev_err(dev, "%s read failed %d\n", __func__,
-				__LINE__);
-		return;
-	}
-	vbusdet &= VBUSDET;
-	if (vbusdet) {
-		dev_info(dev, " vbus so returning from %s\n",__func__);
-		return;
-	}
-
-	mutex_lock(&accessory->sync_id_vbus_lock);
 
 	ret = abx500_get(dev, AB8505_USB, USBLINK1STATUS, &usblink1status);
 	if (ret < 0) {
 		dev_err(dev, "%s read failed %d\n", __func__, __LINE__);
-		mutex_unlock(&accessory->sync_id_vbus_lock);
 		return;
 	}
 	/* Skip detection if UsbLink1Status[4:0] is set */
@@ -1828,11 +2138,9 @@ static void accessory_plug_detect(struct kthread_work *work)
 
 			accessory->cable_detected = USBSWITCH_USBHOST;
 			accessory->cable_last_detected = accessory->cable_detected;
-			mutex_unlock(&accessory->sync_id_vbus_lock);
 			return;
 		}
 	}
-	mutex_unlock(&accessory->sync_id_vbus_lock);
 
 	get_ctrl_from_fsmcharger(accessory);
 	/* Set iddet IP SW controllable */
@@ -1892,8 +2200,11 @@ static void accessory_plug_detect(struct kthread_work *work)
 			accessory->cable_last_detected);
 
 	/* Incase of two plug interrupt without unplug interrupt */
-	if (accessory->cable_detected == accessory->cable_last_detected)
+	if (accessory->cable_detected == accessory->cable_last_detected ||
+			accessory->cable_detected == USBSWITCH_UNKNOWN) {
+		accessory->handle_plug_irq = true;
 		return;
+	}
 
 	accessory->cable_last_detected = accessory->cable_detected;
 
@@ -2012,6 +2323,8 @@ static void micro_usb_accessory_detect(struct work_struct *work)
 			accessory->cable_last_detected ==
 			USBSWITCH_UART ||
 			accessory->cable_last_detected ==
+			USBSWITCH_PLEOMAX_CHARGER ||
+			accessory->cable_last_detected ==
 			USBSWITCH_LEGACY_CHARGER)
 		return;
 	/*
@@ -2095,18 +2408,8 @@ static irqreturn_t micro_usb_accessory_unplug(int irq, void *data)
 {
 	struct usb_accessory_state *accessory = data;
 
-	if (accessory->cable_last_detected != USBSWITCH_NONE &&
-	    accessory->cable_last_detected != USBSWITCH_USBHOST &&
-	    accessory->cable_last_detected != USB_CABLE) {
-		/* Call restore callback for the last connected device */
-		acessory_func_list[accessory->cable_last_detected](accessory,
-				false);
-		accessory->cable_last_detected = USBSWITCH_NONE;
-	}
-	
 	queue_work(accessory->iddet_workqueue,
 			&accessory->cable_unplug_work);
-	accessory->handle_plug_irq = true;
 	return IRQ_HANDLED;
 }
 
@@ -2235,7 +2538,11 @@ static irqreturn_t vbus_fall_irq_handler(int irq, void *data)
 	}  else if (accessory->cable_last_detected == USBSWITCH_DESKTOP_DOCK) {
 		device_type = DESKTOP_DOCK_UNPLUGGED;
 		current_limit = CURRENT_LIMIT_DESKTOP_DOCK;
-	} else if (accessory->cable_last_detected == USBSWITCH_LEGACY_CHARGER) {
+	} else if (accessory->cable_last_detected == USBSWITCH_ATNT_CHARGER) {
+		device_type = ATNT_CHARGER_UNPLUGGED;
+		current_limit = CURRENT_LIMIT_ATNT_CHARGER;
+	} else if (accessory->cable_last_detected == USBSWITCH_LEGACY_CHARGER ||
+		accessory->cable_last_detected == USBSWITCH_PLEOMAX_CHARGER) {
 
 		queue_work(accessory->iddet_workqueue,
 			&accessory->legacy_unplug_work);
@@ -2261,7 +2568,8 @@ static irqreturn_t vbus_irq_handler(int irq, void *data)
 	accessory->vbus_raise_irq = true;
 	if (accessory->cable_last_detected == USBSWITCH_CARKIT_TYPE1 ||
 		accessory->cable_last_detected == USBSWITCH_CARKIT_TYPE2 ||
-		accessory->cable_last_detected == USBSWITCH_DESKTOP_DOCK) {
+		accessory->cable_last_detected == USBSWITCH_DESKTOP_DOCK ||
+		accessory->cable_last_detected == USBSWITCH_ATNT_CHARGER) {
 
 		/* Current limit is in milli amp*/
 		if (accessory->cable_last_detected == USBSWITCH_CARKIT_TYPE1) {
@@ -2273,6 +2581,9 @@ static irqreturn_t vbus_irq_handler(int irq, void *data)
 		} else if (accessory->cable_last_detected == USBSWITCH_DESKTOP_DOCK) {
 			device_type = DESKTOP_DOCK_PLUGGED;
 			current_limit = CURRENT_LIMIT_DESKTOP_DOCK;
+                } else if (accessory->cable_last_detected == USBSWITCH_ATNT_CHARGER) {
+			device_type = ATNT_CHARGER_PLUGGED;
+			current_limit = CURRENT_LIMIT_ATNT_CHARGER;
 		}
 
 		/* Notify carkit plug status*/
@@ -2281,8 +2592,9 @@ static irqreturn_t vbus_irq_handler(int irq, void *data)
 		return IRQ_HANDLED;
 	}
 
-	queue_work(accessory->iddet_workqueue,
-			&accessory->detect_dock_work);
+	if(accessory->cable_last_detected != USBSWITCH_UART_BOOT_OFF)
+		queue_work(accessory->iddet_workqueue,
+				&accessory->detect_dock_work);
 
 	return IRQ_HANDLED;
 }
@@ -2297,7 +2609,6 @@ static irqreturn_t link_status_irq_handler(int irq, void *data)
 	unsigned char usblink1status;
 	struct device *dev = accessory->dev;
 	int ret;
-	unsigned int current_limit = CURRENT_LIMIT_DESKTOP_DOCK;
 	unsigned char vbusdet;
 
 	ret = abx500_get(dev, AB8505_USB, USBLINK1STATUS, &usblink1status);
@@ -2318,19 +2629,11 @@ static irqreturn_t link_status_irq_handler(int irq, void *data)
 	if (!vbusdet) {
 		blocking_notifier_call_chain(&micro_usblinkstatus_notifier_usb,
 			accessory->lsts, NULL);
-	} else if (!accessory->vbus_raise_irq) {
-		if (usblink1status == 0 && accessory->cable_last_detected == USBSWITCH_NONE) {
-			printk("\n sending notification \n");
-			blocking_notifier_call_chain(&micro_usb_notifier_list,
-				LEGACY_CHARGER_PLUGGED, &current_limit);
-		}
 	}
 
 	/* send event to plug_detect workqueue*/
-	if (accessory->wait_event_lsts) {
-		accessory->wait_event_lsts = false;
-		wake_up_interruptible(&accessory->wait);
-	}
+	accessory->wait_event_lsts = false;
+	wake_up_interruptible(&accessory->wait);
 	/* send event to dock detect workqueue*/
 	if (accessory->wait_event_lsts1) {
 		accessory->wait_event_lsts1 = false;
@@ -2423,6 +2726,15 @@ static void accessory_unplug_detect(struct work_struct *work)
 	struct device *dev = accessory->dev;
 	int ret;
 
+	if (accessory->cable_last_detected != USBSWITCH_NONE &&
+	    accessory->cable_last_detected != USBSWITCH_USBHOST &&
+	    accessory->cable_last_detected != USB_CABLE) {
+		/* Call restore callback for the last connected device */
+		acessory_func_list[accessory->cable_last_detected](accessory,
+				false);
+		accessory->cable_last_detected = USBSWITCH_NONE;
+	}
+
 	/* Set iddet IP HW controllable */
 	ret = abx500_mask_and_set(dev, AB8505_CHARGER,
 				REGIDDETCTRL3, IDDETSWCTRLENA, 0x00);
@@ -2432,6 +2744,7 @@ static void accessory_unplug_detect(struct work_struct *work)
 	}
 	accessory_release_irq(CABLE_UNPLUG, accessory);
 	accessory_claim_irq(CABLE_PLUG, accessory);
+	accessory->handle_plug_irq = true;
 }
 
 static void legacy_unplug_detect(struct work_struct *work)
@@ -2595,6 +2908,41 @@ static bool check_cableconnected_onboot(struct usb_accessory_state *accessory,
 	}
 }
 
+static void report_cable(struct usb_accessory_state *accessory , int lsts)
+{
+	struct device *dev = accessory->dev;
+	unsigned char vbusdet;
+	int ret;
+
+	if (!lsts || lsts == 19) {
+		/* read VbusDet state */
+		ret = abx500_get(dev, AB8505_INTERRUPT, ITSOURCE2, &vbusdet);
+		if (ret < 0) {
+			dev_err(dev, "%s read failed %d\n", __func__,
+					__LINE__);
+			return;
+		}
+		vbusdet &= VBUSDET;
+
+		if (vbusdet) {
+			if (!lsts)
+				accessory->cable_detected =
+					USBSWITCH_LEGACY_CHARGER;
+			else
+				accessory->cable_detected =
+					USBSWITCH_PLEOMAX_CHARGER;
+			accessory->cable_last_detected = accessory->cable_detected;
+			/* Do cable specific plug related work */
+			acessory_func_list[accessory->cable_detected](accessory, true);
+			accessory->handle_plug_irq = false;
+			return;
+		}
+	} else {
+		blocking_notifier_call_chain(&micro_usblinkstatus_notifier_usb,
+				lsts, NULL);
+	}
+}
+
 static int usbswitch_iddet(struct usb_accessory_state *accessory)
 {
 	int ret;
@@ -2602,6 +2950,7 @@ static int usbswitch_iddet(struct usb_accessory_state *accessory)
 	unsigned char usblink1status;
 	unsigned char turnonstatus;
 	bool value;
+	int lsts;
 
 	ret = abx500_get(dev, AB8505_SYS_CTRL, TURNONSTATUS, &turnonstatus);
 	if (ret < 0) {
@@ -2615,8 +2964,9 @@ static int usbswitch_iddet(struct usb_accessory_state *accessory)
 		dev_err(dev, "%s write failed %d\n", __func__, __LINE__);
 		return false;
 	}
-	dev_info(dev, "\n in %s usblink1status = %x\n",
-				__func__, usblink1status);
+	lsts = (usblink1status >> 3);
+	dev_info(dev, "\n in %s usblink1status = %d\n",
+				__func__, lsts);
 
 	/* check if bit 7 in Turnonstatus reg is set*/
 	if (turnonstatus & 0x80) {
@@ -2645,6 +2995,7 @@ static int usbswitch_iddet(struct usb_accessory_state *accessory)
 	if (!ret) {
 		dev_info(dev, "\n %s No cable is present %d\n",
 						__func__, __LINE__);
+		report_cable(accessory, lsts);
 		return false;
 	}
 
@@ -2658,8 +3009,10 @@ detected:
 	dev_info(dev, "\n in %s cable detected is %d\n", __func__,
 			accessory->cable_detected);
 
-	if (accessory->cable_detected == USBSWITCH_UNKNOWN)
+	if (accessory->cable_detected == USBSWITCH_UNKNOWN) {
+		report_cable(accessory, lsts);
 		accessory->cable_detected = USBSWITCH_NONE;
+	}
 
 	if (accessory->cable_detected != USBSWITCH_NONE) {
 		accessory->cable_last_detected = accessory->cable_detected;
@@ -2711,12 +3064,20 @@ static ssize_t store_jig_smd(struct device *dev, struct device_attribute *attr, 
 	jig_smd = data;
 	printk(KERN_DEBUG "jig_smd value : %d.\n", jig_smd);
 
+#if defined(CONFIG_MACH_SEC_KYLE)
+	/* When jig_smd value 1 is written, AP doesn't go to deepsleep state for FactoryTest */
+	if (jig_smd)
+		deepest_allowed_state = CONFIG_DBX500_CPUIDLE_DEEPEST_STATE - 1;
+	else
+		deepest_allowed_state = CONFIG_DBX500_CPUIDLE_DEEPEST_STATE;
+	printk(KERN_INFO "%s : deepest_allowed_state = %d\n", __func__, deepest_allowed_state);
+#endif
 	return size;
 }
 
 static DEVICE_ATTR(adc, S_IRUGO | S_IWUSR, jig_uart_state_show, NULL);
 static DEVICE_ATTR(usb_state, S_IRUGO | S_IWUSR, usb_state_show, NULL);
-static DEVICE_ATTR(jig_smd, 0644, show_jig_smd, store_jig_smd);
+static DEVICE_ATTR(jig_smd, 0664, show_jig_smd, store_jig_smd);
 
 int create_sys_class_file(struct usb_accessory_state *accessory)
 {
@@ -2949,7 +3310,11 @@ static int __devinit ab8505_iddet_probe(struct platform_device *pdev)
 						__func__, __LINE__);
 			goto irq_get_fail1;
 		}
-		if (accessory->cable_last_detected == USBSWITCH_NONE) {
+		if (accessory->cable_last_detected == USBSWITCH_NONE ||
+				accessory->cable_last_detected ==
+				USBSWITCH_PLEOMAX_CHARGER ||
+				accessory->cable_last_detected ==
+				USBSWITCH_LEGACY_CHARGER) {
 
 			/* Notify to usb driver to reset PHY register*/
 			blocking_notifier_call_chain(&micro_usb_switch_notifier,
@@ -2976,7 +3341,9 @@ static int __devinit ab8505_iddet_probe(struct platform_device *pdev)
 									__func__, __LINE__);
 					return false;
 			}
-			accessory->handle_plug_irq = true;
+			if (accessory->cable_last_detected != USBSWITCH_LEGACY_CHARGER &&
+				accessory->cable_last_detected != USBSWITCH_PLEOMAX_CHARGER)
+				accessory->handle_plug_irq = true;
 			/* Disable IDHOSTENA n otgctrl register */
 			ret = abx500_mask_and_set(&pdev->dev, AB8505_USB,
 					USBOTGCTRL, IDHOSTENA, 0x00);
@@ -3058,7 +3425,7 @@ static struct platform_driver ab8505_iddet_driver = {
 
 static int __init ab8505_iddet_init(void)
 {
-#if defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_CODINA)
+#if defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_SEC_SKOMER)
 	if (use_ab8505_iddet)
 		return platform_driver_register(&ab8505_iddet_driver);
 	else

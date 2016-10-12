@@ -1,9 +1,9 @@
 /*
  *  Universal power supply monitor class
  *
- *  Copyright © 2007  Anton Vorontsov <cbou@mail.ru>
- *  Copyright © 2004  Szabolcs Gyurko
- *  Copyright © 2003  Ian Molton <spyro@f2s.com>
+ *  Copyright Ã\u201aÂ© 2007  Anton Vorontsov <cbou@mail.ru>
+ *  Copyright Ã\u201aÂ© 2004  Szabolcs Gyurko
+ *  Copyright Ã\u201aÂ© 2003  Ian Molton <spyro@f2s.com>
  *
  *  Modified: 2004, Oct     Szabolcs Gyurko
  *
@@ -20,7 +20,7 @@
 
 /*
  * All voltages, currents, charges, energies, time and temperatures in uV,
- * µA, µAh, µWh, seconds and tenths of degree Celsius unless otherwise
+ * Ã\u201aÂµA, Ã\u201aÂµAh, Ã\u201aÂµWh, seconds and tenths of degree Celsius unless otherwise
  * stated. It's driver's job to convert its raw values to units in which
  * this class operates.
  */
@@ -85,12 +85,6 @@ enum {
 	POWER_SUPPLY_CAPACITY_OTG_DISABLE,
 };
 
-enum {
-	POWER_SUPPLY_SCOPE_UNKNOWN = 0,
-	POWER_SUPPLY_SCOPE_SYSTEM,
-	POWER_SUPPLY_SCOPE_DEVICE,
-};
-
 enum power_supply_property {
 	/* Properties of type `int' */
 	POWER_SUPPLY_PROP_STATUS = 0,
@@ -126,6 +120,9 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_ENERGY_AVG,
 	POWER_SUPPLY_PROP_CAPACITY, /* in percents! */
 	POWER_SUPPLY_PROP_CAPACITY_LEVEL,
+	#if defined(CONFIG_MACH_JANICE) || 	defined(CONFIG_MACH_CODINA) || 	defined(CONFIG_MACH_GAVINI)
+	POWER_SUPPLY_PROP_CAPACITY_RAW, /* in 4 digit  ! */
+	#endif
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_TEMP_AMBIENT,
 	POWER_SUPPLY_PROP_TIME_TO_EMPTY_NOW,
@@ -133,7 +130,6 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_TIME_TO_FULL_NOW,
 	POWER_SUPPLY_PROP_TIME_TO_FULL_AVG,
 	POWER_SUPPLY_PROP_TYPE, /* use power_supply.type instead */
-	POWER_SUPPLY_PROP_SCOPE,
 #if defined( CONFIG_SAMSUNG_CHARGER_SPEC )
 	/* defined for samsung */
 	POWER_SUPPLY_PROP_BATT_CAL,
@@ -151,7 +147,8 @@ enum power_supply_property {
 };
 
 enum power_supply_type {
-	POWER_SUPPLY_TYPE_BATTERY = 0,
+	POWER_SUPPLY_TYPE_UNKNOWN = 0,
+	POWER_SUPPLY_TYPE_BATTERY,
 	POWER_SUPPLY_TYPE_UPS,
 	POWER_SUPPLY_TYPE_MAINS,
 	POWER_SUPPLY_TYPE_USB,		/* Standard Downstream Port */
@@ -160,8 +157,8 @@ enum power_supply_type {
 	POWER_SUPPLY_TYPE_USB_ACA,	/* Accessory Charger Adapters */
 	POWER_SUPPLY_TYPE_MISC,
 	POWER_SUPPLY_TYPE_CARDOCK,
-	POWER_SUPPLY_TYPE_UARTOFF,
 	POWER_SUPPLY_TYPE_WPC,		/* Wireless Charging should be 10 */
+	POWER_SUPPLY_TYPE_UARTOFF,
 	POWER_SUPPLY_TYPE_OTG,
 };
 
@@ -250,7 +247,6 @@ static inline int power_supply_is_system_supplied(void) { return -ENOSYS; }
 extern int power_supply_register(struct device *parent,
 				 struct power_supply *psy);
 extern void power_supply_unregister(struct power_supply *psy);
-extern int power_supply_powers(struct power_supply *psy, struct device *dev);
 
 /* For APM emulation, think legacy userspace. */
 extern struct class *power_supply_class;

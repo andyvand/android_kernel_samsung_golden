@@ -309,7 +309,7 @@ static const struct battery_type bat_type[] = {
 #ifdef CONFIG_SAMSUNG_CHARGER_SPEC
 		.termination_curr_1st = 240,
 		.termination_curr_2nd = 200,
-		.recharge_vol = 4250,
+		.recharge_vol = 4300,
 #else
 		.termination_curr = 200,
 #endif
@@ -376,9 +376,9 @@ static const struct battery_type bat_type[] = {
 		.nominal_voltage = 3820,
 		.termination_vol =  4350,
 #ifdef CONFIG_SAMSUNG_CHARGER_SPEC
-		.termination_curr_1st = 100,	/* 100 */
-		.termination_curr_2nd = 60,	/* 100 */
-		.recharge_vol = 4250,		/* 4130 */
+		.termination_curr_1st = 160,	/* 100 */
+		.termination_curr_2nd = 120,	/* 100 */
+		.recharge_vol = 4300,		/* 4130 */
 #else
 		.termination_curr = 200,	/* 200 */
 #endif
@@ -510,7 +510,7 @@ static const struct ab8500_bm_charger_parameters chg = {
 	   and ac voltage when discharging.
 	*/
 	.ac_volt_max		= 6650,
-	.ac_curr_max		= 600,
+	.ac_curr_max		= 700,
 #ifdef CONFIG_SAMSUNG_CHARGER_SPEC
 	.ac_volt_max_recovery	= 6800,
 	.usb_volt_max_recovery	= 5700,
@@ -525,7 +525,7 @@ struct ab8500_bm_data ab8500_bm_data = {
 	.main_safety_tmr_h	= 4,
 	.temp_interval_chg	= 20,
 	.temp_interval_nochg	= 120,
-#ifdef CONFIG_USB_SWITCHER
+#if defined(CONFIG_USB_SWITCHER) || defined(CONFIG_INPUT_AB8505_MICRO_USB_DETECT)
 	.ta_chg_current		= 800,
 	.ta_chg_voltage		= 4350,
 	.usb_chg_current	= 500,

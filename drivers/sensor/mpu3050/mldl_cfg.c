@@ -152,7 +152,7 @@ static int MLDLSetI2CBypass(struct mldl_cfg *mldl_cfg,
 {
 	unsigned char b;
 	int result;
-
+	enable = true;
 	if ((mldl_cfg->gyro_is_bypassed && enable) ||
 	    (!mldl_cfg->gyro_is_bypassed && !enable))
 		return ML_SUCCESS;
@@ -187,7 +187,7 @@ static int MLDLSetI2CBypass(struct mldl_cfg *mldl_cfg,
 		 * 2) wait enough time for a nack to occur, then go into
 		 *    bypass mode:
 		 */
-		MLOSSleep(2);
+		MLOSSleep(1);
 		result = MLSLSerialWriteSingle(mlsl_handle, mldl_cfg->addr,
 					       MPUREG_USER_CTRL, (b));
 		ERROR_CHECK(result);
@@ -195,7 +195,8 @@ static int MLDLSetI2CBypass(struct mldl_cfg *mldl_cfg,
 		 * 3) wait for up to one MPU cycle then restore the slave
 		 *    address
 		 */
-		MLOSSleep(SAMPLING_PERIOD_US(mldl_cfg) / 1000);
+		/* MLOSSleep(SAMPLING_PERIOD_US(mldl_cfg) / 1000); */
+		MLOSSleep(1);
 		result = MLSLSerialWriteSingle(mlsl_handle, mldl_cfg->addr,
 					       MPUREG_AUX_SLV_ADDR,
 					       mldl_cfg->pdata->
@@ -216,7 +217,7 @@ static int MLDLSetI2CBypass(struct mldl_cfg *mldl_cfg,
 					       (b | BIT_AUX_IF_RST));
 #endif
 		ERROR_CHECK(result);
-		MLOSSleep(2);
+		MLOSSleep(1);
 	}
 	mldl_cfg->gyro_is_bypassed = enable;
 
@@ -276,6 +277,12 @@ static struct tsProdRevMap prodRevsMap[] = {
 	{MPU_SILICON_REV_B6, 0},	/* 24 |  (npp)    */
 	{MPU_SILICON_REV_B6, 0},	/* 25 V  (npp)    */
 	{MPU_SILICON_REV_B6, 131},	/* 26    (B6/A11) */
+	{MPU_SILICON_REV_B6, 0},	/* 27 |  */
+	{MPU_SILICON_REV_B6, 0},	/* 28 |  */
+	{MPU_SILICON_REV_B6, 0},	/* 29 |  */
+	{MPU_SILICON_REV_B6, 0},	/* 30 |  */
+	{MPU_SILICON_REV_B6, 0},	/* 31 |  */
+	{MPU_SILICON_REV_B6, 131},	/* 32 |  */
 };
 #endif				/* !M_HW */
 
@@ -290,7 +297,8 @@ static struct tsProdRevMap prodRevsMap[] = {
 static int MLDLGetSiliconRev(struct mldl_cfg *pdata,
 			     void *mlsl_handle)
 {
-	int result;
+	int result = 0;
+#if defined(CONFIG_MPU_SENSORS_BMA222E)
 	unsigned char index = 0x00;
 	unsigned char bank =
 	    (BIT_PRFTCH_EN | BIT_CFG_USER_BANK | MPU_MEM_OTP_BANK_0);
@@ -326,6 +334,10 @@ static int MLDLGetSiliconRev(struct mldl_cfg *pdata,
 			 " - unsupported non production part.\n");
 		return ML_ERROR_INVALID_MODULE;
 	}
+#else
+	pdata->silicon_revision = MPU_SILICON_REV_B6;
+	pdata->trim = 131;
+#endif
 
 	return result;
 }
@@ -564,7 +576,7 @@ static int MLDLPowerMgmtMPU(struct mldl_cfg *pdata,
 		result = MLSLSerialWriteSingle(mlsl_handle, pdata->addr,
 					MPUREG_PWR_MGM, b | BIT_H_RESET);
 		ERROR_CHECK(result);
-		MLOSSleep(5);
+		MLOSSleep(2);
 		pdata->gyro_needs_reset = FALSE;
 		/* Some chips are awake after reset and some are asleep,
 		 * check the status */
@@ -622,7 +634,7 @@ static int MLDLPowerMgmtMPU(struct mldl_cfg *pdata,
 						  MPUREG_PWR_MGM, b);
 			ERROR_CHECK(result);
 			pdata->gyro_is_suspended = FALSE;
-			MLOSSleep(5);
+			MLOSSleep(2);
 		}
 	}
 	/*---
@@ -1036,6 +1048,7 @@ static int gyro_resume(struct mldl_cfg *mldl_cfg, void *gyro_handle)
 	ERROR_CHECK(result);
 
 	/* Write and verify memory */
+#if defined(CONFIG_MPU_SENSORS_BMA222E)
 	for (ii = 0; ii < MPU_MEM_NUM_RAM_BANKS; ii++) {
 		unsigned char read[MPU_MEM_BANK_SIZE];
 
@@ -1045,6 +1058,7 @@ static int gyro_resume(struct mldl_cfg *mldl_cfg, void *gyro_handle)
 					MPU_MEM_BANK_SIZE,
 					mldl_cfg->ram[ii]);
 		ERROR_CHECK(result);
+#if 0
 		result = MLSLSerialReadMem(gyro_handle, mldl_cfg->addr,
 					((ii << 8) | 0x00),
 					MPU_MEM_BANK_SIZE, read);
@@ -1065,8 +1079,9 @@ static int gyro_resume(struct mldl_cfg *mldl_cfg, void *gyro_handle)
 			}
 		}
 		ERROR_CHECK(result);
+#endif
 	}
-
+#endif
 	result = MLSLSerialWriteSingle(gyro_handle, mldl_cfg->addr,
 				MPUREG_XG_OFFS_TC,
 				mldl_cfg->offset_tc[0]);
@@ -1124,7 +1139,11 @@ int mpu3050_open(struct mldl_cfg *mldl_cfg,
 {
 	int result;
 	/* Default is Logic HIGH, pushpull, latch disabled, anyread to clear */
-	mldl_cfg->int_config = BIT_INT_ANYRD_2CLEAR | BIT_DMP_INT_EN;
+#if defined(CONFIG_MPU_SENSORS_BMA222E)
+     mldl_cfg->int_config = BIT_INT_ANYRD_2CLEAR | BIT_DMP_INT_EN;
+#else
+	mldl_cfg->int_config = BIT_INT_ANYRD_2CLEAR | BIT_RAW_RDY_EN;
+#endif
 	mldl_cfg->clk_src = MPU_CLK_SEL_PLLGYROZ;
 	mldl_cfg->lpf = MPU_FILTER_42HZ;
 	mldl_cfg->full_scale = MPU_FS_2000DPS;
@@ -1522,7 +1541,7 @@ int mpu3050_suspend(struct mldl_cfg *mldl_cfg,
 					       NULL, NULL);
 			ERROR_CHECK(result);
 		}
-#if 0		
+#if 0
 		result = mldl_cfg->accel->suspend(accel_handle,
 						  mldl_cfg->accel,
 						  &mldl_cfg->pdata->accel);

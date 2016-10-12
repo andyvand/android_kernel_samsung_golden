@@ -22,7 +22,8 @@
 #include <linux/slab.h>
 #include <linux/sysfs.h>
 #include <linux/timer.h>
-#include <linux/gpio/nomadik.h>
+#include <plat/gpio-nomadik.h>
+
 #include <plat/pincfg.h>
 #include <linux/workqueue.h>
 #include <linux/list.h>

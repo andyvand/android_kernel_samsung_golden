@@ -368,7 +368,7 @@ struct ab8500_charger {
 	struct wake_lock ac_charger_attached_wake_lock;
 	struct wake_lock usb_charger_attached_wake_lock;
 	struct mutex charger_attached_mutex;
-#endif
+
 };
 
 /* AC properties */
@@ -411,7 +411,7 @@ extern void mxt224e_ts_change_vbus_state(bool vbus_status);
 static void (*mxt224e_ts_vbus_state)(bool vbus_status);
 #endif
 
-#if defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_SEC_KYLE)
+#if defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_SEC_SKOMER) 
 extern int use_ab8505_iddet;
 #endif
 
@@ -1735,7 +1735,7 @@ static int ab8500_charger_ac_en(struct ux500_charger *charger,
 		return ret;
 
 	if (enable) {
-#if defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_SEC_GOLDEN)
+#if defined(CONFIG_MACH_CODINA) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_SEC_SKOMER) 
 		msleep(100);
 #endif
 
@@ -4743,7 +4743,7 @@ static struct platform_driver ab8500_charger_driver = {
 static int __init ab8500_charger_init(void)
 {
 #if defined(CONFIG_USB_SWITCHER)
-#if defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_SEC_KYLE)
+#if defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_SEC_SKOMER) 
 	if (use_ab8505_iddet)
 		return 0;
 

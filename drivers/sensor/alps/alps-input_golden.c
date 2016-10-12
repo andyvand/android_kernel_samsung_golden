@@ -31,8 +31,8 @@
 #include "alps_compass_io.h"
 
 extern int hscd_get_magnetic_field_data(int *xyz);
-extern void hscd_activate(int flgatm, int flg, int dtime);
-extern void hscd_register_init(void);
+extern int hscd_activate(int flgatm, int flg, int dtime);
+
 extern int hscd_self_test_A(void);
 extern int hscd_self_test_B(void);
 
@@ -83,7 +83,6 @@ static long alps_ioctl(struct file* filp, unsigned int cmd, unsigned long arg)
 
 		mutex_lock(&alps_lock);
 		flgM = tmpval;
-		if(flgM)	hscd_register_init();
 
 		hscd_activate(1, tmpval, delay);
 		mutex_unlock(&alps_lock);
@@ -177,13 +176,13 @@ static struct miscdevice alps_device = {
 
 static int alps_probe(struct platform_device *dev)
 {
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 	return 0;
 }
 
 static int alps_remove(struct platform_device *dev)
 {
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 	return 0;
 }
 
@@ -191,7 +190,7 @@ static int alps_remove(struct platform_device *dev)
 static void alps_early_suspend(struct early_suspend *handler)
 {
 #ifdef ALPS_DEBUG
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 #endif
 	mutex_lock(&alps_lock);
 	flgSuspend = 1;
@@ -201,7 +200,7 @@ static void alps_early_suspend(struct early_suspend *handler)
 static void alps_early_resume(struct early_suspend *handler)
 {
 #ifdef ALPS_DEBUG
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 #endif
 	mutex_lock(&alps_lock);
 	poll_stop_cnt = POLL_STOP_TIME / delay;
@@ -228,7 +227,7 @@ static struct early_suspend alps_early_suspend_handler = {
 
 static void hscd_poll(struct input_dev *idev)
 {
-	int xyz[3];
+	int xyz[3] = {0, };
 
 	if(hscd_get_magnetic_field_data(xyz) == 0) {
 #ifdef ALPS_DEBUG
@@ -257,7 +256,7 @@ static int __init alps_init(void)
 	struct input_dev *idev;
 	int ret;
 
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 	ret = platform_driver_register(&alps_driver);
 	if (ret)
@@ -350,7 +349,7 @@ out_region:
 
 static void __exit alps_exit(void)
 {
-	alps_info("is called\n", __func__);
+	alps_info("is called\n");
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	unregister_early_suspend(&alps_early_suspend_handler);

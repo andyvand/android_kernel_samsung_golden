@@ -29,7 +29,24 @@
 
 #include <asm/io.h>
 
+#define IORA 1
 extern unsigned int system_rev;
+
+#ifdef IORA
+ 
+  void breakpoint_iora_init()
+{
+	pr_info("breakpoint_iora_init...!!!");
+}
+EXPORT_SYMBOL(breakpoint_iora_init);
+
+ void breakpoint_iora_suspend()
+{
+	pr_info("breakpoint_iora_suspend...!!!");
+}
+EXPORT_SYMBOL(breakpoint_iora_suspend);
+
+#endif
 
 /*
 * Configuration of pins, pull resisitors states
@@ -1356,6 +1373,7 @@ static pin_cfg_t gavini_common_sleep_table[] = {
 	GPIO166_GPIO | PIN_INPUT_PULLDOWN,
 	GPIO167_GPIO | PIN_INPUT_PULLDOWN,
 	GPIO168_GPIO | PIN_INPUT_PULLDOWN,
+	GPIO169_GPIO | PIN_OUTPUT_LOW,  /* EN_LCD */
 
 	GPIO170_GPIO | PIN_INPUT_PULLDOWN,
 	GPIO171_GPIO | PIN_INPUT_PULLDOWN,
@@ -1509,6 +1527,9 @@ static void gavini_pins_suspend_force(void)
 		nmk_config_pins(gavini_r0_3_sleep_table,
 				ARRAY_SIZE(gavini_r0_3_sleep_table));
 	}
+	#ifdef IORA
+		breakpoint_iora_suspend();
+	#endif
 }
 
 /*
@@ -1619,6 +1640,10 @@ void __init ssg_pins_init(void)
 	sdmmc_pins_init();
 	suspend_set_pins_force_fn(gavini_pins_suspend_force,
 				  gavini_pins_suspend_force_mux);
+	
+	#ifdef IORA
+		breakpoint_iora_init();
+	#endif
 }
 
 int pins_for_u9500(void)

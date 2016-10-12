@@ -355,6 +355,10 @@ static int common_receive(struct shrm_dev *shrm, void *data,
 			tasklet_schedule(&ipcdata_rcv_tasklet);
 	}
 
+#ifdef CONFIG_U8500_KERNEL_CLIENT
+exit:
+#endif
+
 	dev_dbg(shrm->dev, "%s OUT\n", __func__);
 	return ret;
 }
@@ -962,7 +966,9 @@ int u8500_shrm_suspend(struct device *dev)
 int u8500_shrm_resume(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
+#ifdef CONFIG_U8500_SHRM_DEFAULT_NET
 	struct shrm_dev *shrm = platform_get_drvdata(pdev);
+#endif
 	int err = 0;
 
 	dev_dbg(&pdev->dev, "%s called...\n", __func__);

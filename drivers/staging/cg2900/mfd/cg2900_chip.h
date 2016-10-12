@@ -131,6 +131,35 @@ struct bt_vs_read_selftests_result_evt {
 /* Bluetooth Vendor Specific Opcodes */
 #define CG2900_BT_OP_VS_POWER_SWITCH_OFF		0xFD40
 #define CG2900_BT_OP_VS_SYSTEM_RESET			0xFF12
+#define CG2900_BT_OP_VS_WRITE_REGISTER			0xFD03
+
+struct bt_vs_write_register {
+	__le16	opcode;
+	__u8	plen;
+	__u8	data0;
+	__u16	address_lower;
+	__u16	address_upper;
+	__u16	mask;
+	__u16	dnt_care;
+	__u16	value;
+	__u16	padding;
+} __packed;
+
+#define CG2900_EPTA_DISABLE_VALUE_1				0x0000
+#define CG2900_EPTA_DISABLE_VALUE_2				0x0000
+#define CG2900_EPTA_ENABLE_VALUE_1				0x0004
+#define CG2900_EPTA_ENABLE_VALUE_2				0x01B0
+
+#define CG2900_EPTA_ADDRESS_LOWER_1				0xE0B0
+#define CG2900_EPTA_ADDRESS_UPPER_1				0x4001
+#define CG2900_EPTA_ADDRESS_LOWER_2				0xE0B8
+#define CG2900_EPTA_ADDRESS_UPPER_2				0x4001
+
+#define CG2900_EPTA_MASK_1				0x0007
+#define CG2900_EPTA_MASK_2				0x01F8
+
+#define CG2900_EPTA_DONT_CARE				0xFFFF
+#define CG2900_EPTA_PADDING			        0x0000
 
 #define CG2900_BT_OPCODE_NONE				0xFFFF
 

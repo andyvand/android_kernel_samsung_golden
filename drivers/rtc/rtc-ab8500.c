@@ -21,6 +21,12 @@
 #include <linux/jiffies.h>
 #include <linux/mutex.h>
 
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN) || defined(CONFIG_MACH_JANICE_CHN) || defined(CONFIG_MACH_CODINA_CHN) || defined(CONFIG_MACH_GAVINI_CHN)
+#include <mach/sec_param.h>
+#include <mach/sec_common.h>
+#include <linux/reboot.h>
+#endif
+
 #define AB8500_RTC_SOFF_STAT_REG	0x00
 #define AB8500_RTC_CC_CONF_REG		0x01
 #define AB8500_RTC_READ_REQ_REG		0x02
@@ -47,7 +53,13 @@
 #define RTC_STATUS_DATA			0x01
 
 #define COUNTS_PER_SEC			(0xF000 / 60)
+
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN)
+#define AB8500_RTC_EPOCH		2000
+#else
 #define AB8500_RTC_EPOCH		1999
+#endif
+
 #define AB8500_ALARM_DEBUG		0
 static struct rtc_device *_rtc;
 static int rtc_60s_irq;
@@ -298,6 +310,41 @@ static int ab8500_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	return ab8500_rtc_irq_enable(dev, alarm->enabled);
 }
 
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN)
+extern unsigned int battpwroff_charging;
+void check_alarm_boot_lpm(void)
+{
+	pr_info("[AB8500 rtc] %s\n", __func__);
+	if (battpwroff_charging == 1) {
+		u8 check_param = 0;
+
+		sec_get_param_value(__PARAM_INT_14, &check_param);
+
+		pr_info("battpwroff_charging:%d, check_param:%d, alarm_en_exit:%d\n",
+			battpwroff_charging, check_param, alarm_en_exit);
+
+		if (check_param == 1)
+			machine_restart(NULL);
+	}
+}
+#endif
+#if defined(CONFIG_MACH_JANICE_CHN) || defined(CONFIG_MACH_CODINA_CHN) || defined(CONFIG_MACH_GAVINI_CHN)
+void check_alarm_boot_lpm(void)
+{
+	pr_info("[AB8500 rtc] %s\n", __func__);
+	if (sec_lpm_bootmode == 1) {
+		u8 check_param = 0;
+
+		sec_get_param_value(__PARAM_INT_14, &check_param);
+
+		pr_info("sec_lpm_bootmode:%d, check_param:%d, alarm_en_exit:%d\n",
+			sec_lpm_bootmode, check_param, alarm_en_exit);
+
+		if (check_param == 1)
+			machine_restart(NULL);
+	}
+}
+#endif
 static int ab8500_rtc_set_calibration(struct device *dev, int calibration)
 {
 	int retval;
@@ -434,6 +481,13 @@ static irqreturn_t rtc_alarm_handler(int irq, void *data)
 	dev_dbg(&rtc->dev, "%s\n", __func__);
 	rtc_update_irq(rtc, 1, events);
 
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN)
+	if (battpwroff_charging)
+		check_alarm_boot_lpm();
+#elif defined(CONFIG_MACH_JANICE_CHN) || defined(CONFIG_MACH_CODINA_CHN) || defined(CONFIG_MACH_GAVINI_CHN)
+	if (sec_lpm_bootmode)
+		check_alarm_boot_lpm();
+#endif
 	return IRQ_HANDLED;
 }
 
@@ -506,6 +560,34 @@ static int __devinit ab8500_rtc_probe(struct platform_device *pdev)
 
 	_rtc = rtc;
 
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN) || defined(CONFIG_MACH_JANICE_CHN) || defined(CONFIG_MACH_CODINA_CHN) || defined(CONFIG_MACH_GAVINI_CHN)
+	{
+		u8 rtc_status = 0;
+		struct rtc_wkalrm alarm_time;
+
+		/* check rtc status  */
+		abx500_get_register_interruptible(&pdev->dev, AB8500_RTC,
+			AB8500_RTC_STAT_REG, &rtc_status);
+		pr_info("[AB8500 rtc] rtc status : 0x%x\n", rtc_status);
+
+		/* check interrupt status */
+		abx500_get_register_interruptible(&pdev->dev,
+			AB8500_SYS_CTRL1_BLOCK, 0x0, &rtc_status);
+		pr_info("[AB8500 rtc] turn on status : 0x%x\n", rtc_status);
+#if   defined(CONFIG_MACH_SEC_GOLDEN_CHN)
+		pr_info("[AB8500 rtc] lpm mode : %d\n", battpwroff_charging);
+		#elif defined(CONFIG_MACH_JANICE_CHN)
+		pr_info("[AB8500 rtc] lpm mode : %d\n", sec_lpm_bootmode);
+#endif
+
+		ab8500_rtc_read_alarm(&pdev->dev, &alarm_time);
+		pr_info("%s, [%d] %d/%d/%d %d:%d:%d\n", __func__,
+			alarm_time.enabled, alarm_time.time.tm_year-100,
+			alarm_time.time.tm_mon+1, alarm_time.time.tm_mday,
+			alarm_time.time.tm_hour, alarm_time.time.tm_min,
+			alarm_time.time.tm_sec);
+	}
+#endif
 	platform_set_drvdata(pdev, rtc);
 
 
@@ -523,6 +605,23 @@ static int __devexit ab8500_rtc_remove(struct platform_device *pdev)
 	struct rtc_device *rtc = platform_get_drvdata(pdev);
 	int irq = platform_get_irq_byname(pdev, "ALARM");
 	int irq_60s = platform_get_irq_byname(pdev, "60S");
+
+#if defined(CONFIG_MACH_SEC_GOLDEN_CHN) || defined(CONFIG_MACH_JANICE_CHN) || defined(CONFIG_MACH_CODINA_CHN) || defined(CONFIG_MACH_GAVINI_CHN)
+	int temp_param;
+	if (alarm_en_exit == 1) {
+		
+		autoboot_alm.time.tm_min--;
+		ab8500_rtc_set_alarm(&pdev->dev, &autoboot_alm);
+	}
+
+	sec_get_param_value(__PARAM_INT_14, &temp_param);
+	pr_info("[AB8500 rtc] __PARAM_INT_14 = %d, %d\n",
+		temp_param, alarm_en_exit);
+	if ((temp_param == 0) && (alarm_en_exit == 1)) {
+		temp_param = alarm_en_exit;
+		sec_set_param_value(__PARAM_INT_14, &temp_param);
+	}
+#endif
 
 	ab8500_sysfs_rtc_unregister(&pdev->dev);
 

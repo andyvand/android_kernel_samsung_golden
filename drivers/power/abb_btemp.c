@@ -29,7 +29,7 @@
 #define FAST_MONITOR	5
 #define NORMAL_MONITOR	20
 
-#define AB8500_BAT_CTRL_CURRENT_SOURCE_DEFAULT 0x14 
+#define AB8500_BAT_CTRL_CURRENT_SOURCE_DEFAULT 0x14
 
 #ifdef MAKE_PROC_BATTERY_ID_ENTRY
 #include <linux/proc_fs.h>
@@ -49,11 +49,10 @@
 #define to_ab8500_btemp_device_info(x) container_of((x), \
 	struct ab8500_btemp, btemp_psy);
 
-enum battery_monitoring_state 
-{
+enum battery_monitoring_state {
 	temperature_monitoring_off = 0 ,
-	temperature_monitoring_no_charging , 
-	temperature_monitoring_with_charging , 
+	temperature_monitoring_no_charging ,
+	temperature_monitoring_with_charging ,
 } ;
 
 /**
@@ -74,8 +73,6 @@ struct ab8500_btemp_events {
 	bool btemp_low;
 	bool ac_conn;
 	bool usb_conn;
-	bool battery_ovv ;
-	unsigned long battery_ovv_time ;
 };
 
 struct ab8500_btemp_ranges {
@@ -109,7 +106,7 @@ struct ab8500_btemp {
 	int curr_source;
 	int bat_temp;
 	int prev_bat_temp;
-	int battery_monitoring_state ; 
+	int battery_monitoring_state ;
 	int vf_error_cnt;
 	int vf_ok_cnt;
 	int monitor_time;
@@ -125,14 +122,13 @@ struct ab8500_btemp {
 	struct ab8500_btemp_ranges btemp_ranges;
 	struct workqueue_struct *btemp_wq;
 	struct delayed_work btemp_periodic_work;
-	struct work_struct battery_over_voltage_work;
 
 #ifdef MAKE_PROC_BATTERY_ID_ENTRY
-	struct proc_dir_entry * battery_proc_entry ;
+	struct proc_dir_entry *battery_proc_entry ;
 #endif //MAKE_PROC_BATTERY_ID_ENTRY
 };
 
-static struct ab8500_btemp * battery = NULL ;
+static struct ab8500_btemp *battery = NULL ;
 
 /* BTEMP power supply properties */
 static enum power_supply_property ab8500_btemp_props[] = {
@@ -147,7 +143,7 @@ static LIST_HEAD(ab8500_btemp_list);
 
 struct over_temperature_lookup {
 	int cutoff_temperature ;
-	int reg_value 		;
+	int reg_value ;
 
 } ;
 
@@ -177,31 +173,31 @@ static void ab8500_charger_set_high_temperature_cutoff_temp(struct ab8500_btemp 
 	char val ;
 	int ret ;
 	if (di && di->bat) {	/* lookup nearest temperature available */
-		for (x=0;x<ARRAY_SIZE(over_temperature_lookups)-1;x++) {			
-			if ( di->bat->temp_over >= over_temperature_lookups[x].cutoff_temperature) {
-				i=x;
+		for (x = 0; x < ARRAY_SIZE(over_temperature_lookups)-1; x++) {
+			if (di->bat->temp_over >= over_temperature_lookups[x].cutoff_temperature) {
+				i = x;
 				break ;
 			}
 		}
-		i=(i<0)?0:i ;		
+		i = (i < 0) ? 0 : i ;
 		abx500_set_register_interruptible(di->dev, AB8500_CHARGER,
-                     AB8500_BTEMP_HIGH_TH,over_temperature_lookups[x].reg_value);          
-		ret = abx500_get_register_interruptible(di->dev, AB8500_CHARGER,AB8500_BTEMP_HIGH_TH, &val);     
-		if (ret>=0) { /* convert value we set to temperature and sync software and hardware thermal limit*/
+						  AB8500_BTEMP_HIGH_TH, over_temperature_lookups[x].reg_value);
+		ret = abx500_get_register_interruptible(di->dev, AB8500_CHARGER, AB8500_BTEMP_HIGH_TH, &val);
+		if (ret >= 0) { /* convert value we set to temperature and sync software and hardware thermal limit*/
 			val &= 0x3 ;
-			for(x=0;ARRAY_SIZE(over_temperature_lookups);x++) {	/* actual register settings temperature*/
-				if (over_temperature_lookups[x].reg_value == val) {						
+			for (x = 0; ARRAY_SIZE(over_temperature_lookups); x++) {	/* actual register settings temperature*/
+				if (over_temperature_lookups[x].reg_value == val) {
 					di->bat->temp_hysteresis -= (di->bat->temp_over - over_temperature_lookups[x].cutoff_temperature) ;
 					//di->bat->temp_over = over_temperature_lookups[x].cutoff_temperature ;
-					dev_dbg(di->dev, "%s Charging shutdown temp=%d hysteresis=%d restart temp=%d ",__func__
-								,di->bat->temp_over
-								,di->bat->temp_hysteresis ,
-								di->bat->temp_over-di->bat->temp_hysteresis);
-					
+					dev_dbg(di->dev, "%s Charging shutdown temp=%d hysteresis=%d restart temp=%d ", __func__
+						, di->bat->temp_over
+						, di->bat->temp_hysteresis
+						, di->bat->temp_over-di->bat->temp_hysteresis);
+
 					break ;
 				}
 			}
-		}			
+		}
 	}
 }
 
@@ -293,9 +289,8 @@ static int ab8500_btemp_curr_source_enable(struct ab8500_btemp *di,
 	int curr;
 	int ret = 0;
 
-	if (di->bat->adc_therm == ADC_THERM_BATTEMP) {
+	if (di->bat->adc_therm == ADC_THERM_BATTEMP)
 		return 0;
-	}
 
 	/*
 	 * BATCTRL current sources are included on AB8500 cut2.0
@@ -431,25 +426,25 @@ disable_force_comp:
 
 static bool ab8500_batctrl_nc(struct ab8500_btemp *di)
 {
-       int ret, batctrl;
-       /*
-        * BATCTRL current sources are included on AB8500 cut2.0
-        * and future versions
-        */
-       ret = ab8500_btemp_curr_source_enable(di, true);
-       if (ret) {
-               dev_err(di->dev, "%s curr source enabled failed\n", __func__);
-               return ret;
-       }
+	int ret, batctrl;
+/*
+ * BATCTRL current sources are included on AB8500 cut2.0
+ * and future versions
+ */
+	ret = ab8500_btemp_curr_source_enable(di, true);
+	if (ret) {
+		dev_err(di->dev, "%s curr source enabled failed\n", __func__);
+		return ret;
+	}
 
-       batctrl = ab8500_btemp_read_batctrl_voltage(di);
-       dev_dbg(di->dev, "Read battctrl voltage to: %d\n", batctrl);
+	batctrl = ab8500_btemp_read_batctrl_voltage(di);
+	dev_dbg(di->dev, "Read battctrl voltage to: %d\n", batctrl);
 
-       ret = ab8500_btemp_curr_source_enable(di, false);
+	ret = ab8500_btemp_curr_source_enable(di, false);
 
-       if (batctrl > 1300)
-               return true;
-       return false;
+	if (batctrl > 1300)
+		return true;
+	return false;
 }
 
 /**
@@ -499,8 +494,8 @@ static int battery_resistence_readproc(char *page, char **start, off_t off,
 	struct ab8500_btemp *di = (struct ab8500_btemp *) data ;
 	int len = 0 ;
 	int res = ab8500_btemp_get_batctrl_res(di);
-	len = sprintf(page,"battery resistence = %d ohms\n",res);
-	*eof=-1 ;
+	len = sprintf(page, "battery resistence = %d ohms\n", res);
+	*eof = -1 ;
 	return len ;
 }
 
@@ -573,7 +568,7 @@ static int ab8500_btemp_measure_temp(struct ab8500_btemp *di)
 	temp = ab8500_btemp_res_to_temp(di,
 		di->bat->bat_type[id].r_to_t_tbl,
 		di->bat->bat_type[id].n_temp_tbl_elements, adc);
-	if(temp != prev)
+	if (temp != prev)
 		pr_info("%s: adc(%d), temp(%d)\n", __func__, adc, temp);
 	prev = temp;
 
@@ -727,11 +722,6 @@ static void ab8500_btemp_periodic_work(struct work_struct *work)
 
 	struct ab8500_btemp *di = container_of(work,
 		struct ab8500_btemp, btemp_periodic_work.work);
-	if (di->events.battery_ovv && time_after(jiffies,di->events.battery_ovv_time+(10*HZ))) {
-		vbat = ab8500_gpadc_convert(di->gpadc, MAIN_BAT_V);
-		dev_dbg(di->dev, "battery overvoltage interrupt seen. Battery voltage =%d flag =%d\n",vbat,di->events.battery_ovv);	
-		di->events.battery_ovv = (vbat>=di->bat->bat_type[di->bat->batt_id].over_voltage_threshold); 
-	}
 
 	batt_id = ab8500_btemp_id(di);
 
@@ -783,7 +773,7 @@ static void ab8500_btemp_periodic_work(struct work_struct *work)
 
 	if (di->bat_temp != di->prev_bat_temp) {
 		di->prev_bat_temp = di->bat_temp;
-		if (di->battery_monitoring_state==temperature_monitoring_with_charging)
+		if (di->battery_monitoring_state == temperature_monitoring_with_charging)
 			power_supply_changed(&di->btemp_psy);
 	}
 
@@ -791,38 +781,6 @@ static void ab8500_btemp_periodic_work(struct work_struct *work)
 	queue_delayed_work(di->btemp_wq,
 		&di->btemp_periodic_work,
 		round_jiffies(di->monitor_time * HZ));
-}
-
-static void ab8500_battery_over_voltage_work(struct work_struct *work)
-{
-	struct ab8500_btemp *di = container_of(work,
-					struct ab8500_btemp, 
-					battery_over_voltage_work);
-	if (di->events.battery_ovv)
-		power_supply_changed(&di->btemp_psy);
-}
-
-
-static irqreturn_t ab8500_battery_over_voltage_handler(int irq, void *_di)
-{
-	/* struct ab8500_btemp *di = _di; */
-
-	/*
-	  Sometimes battery ovv interrupt occur in the below 4.3V
-	  even though ovv threshold is 4.75V
-	  So, We igonre this interrupt.
-	  AB8500 charger supports CV charging,
-	  so battery voltage is maintained below the voltage
-	  which is set in the ChVoltLevel(0x0B40) register.
-	*/
-
-	/*
-	  di->events.battery_ovv = true;
-	  di->events.battery_ovv_time = jiffies ;
-	  dev_info(di->dev, "Battery over voltage interrupt seen\n");
-	  queue_work(di->btemp_wq,&di->battery_over_voltage_work);
-	*/
-	return IRQ_HANDLED;
 }
 
 /**
@@ -929,7 +887,7 @@ static irqreturn_t ab8500_btemp_lowmed_handler(int irq, void *_di)
 		di->events.btemp_high = false;
 		di->events.btemp_low = false;
 		power_supply_changed(&di->btemp_psy);
-		
+
 		break ;
 	}
 	return IRQ_HANDLED;
@@ -963,7 +921,7 @@ static irqreturn_t ab8500_btemp_medhigh_handler(int irq, void *_di)
 		di->events.btemp_high = false;
 		di->events.btemp_low = false;
 		power_supply_changed(&di->btemp_psy);
-	
+
 		break ;
 	}
 	return IRQ_HANDLED;
@@ -977,26 +935,24 @@ static irqreturn_t ab8500_btemp_medhigh_handler(int irq, void *_di)
  * Starts of stops periodic temperature measurements. Periodic measurements
  * should only be done when a charger is connected.
  */
-static void ab8500_btemp_periodic(struct ab8500_btemp *di, int new_state )
+static void ab8500_btemp_periodic(struct ab8500_btemp *di, int new_state)
 {
 	dev_dbg(di->dev, "Enable periodic temperature measurements: %d\n",
 		new_state);
-	di->battery_monitoring_state=new_state ;	
-	if (new_state == temperature_monitoring_off)  {
-		cancel_delayed_work_sync(&di->btemp_periodic_work);	 
-	}
-	else  {	
+	di->battery_monitoring_state = new_state ;
+	if (new_state == temperature_monitoring_off)
+		cancel_delayed_work_sync(&di->btemp_periodic_work);
+	else
 		queue_delayed_work(di->btemp_wq, &di->btemp_periodic_work, 0);
-	}
 }
 
 #define ABSOLUTE_ZERO (-273)
 
 int measure_battery_temperature(void)
 {
-	int retval= ABSOLUTE_ZERO;
+	int retval = ABSOLUTE_ZERO;
 	if (battery)
-		retval= ab8500_btemp_measure_temp(battery) ;
+		retval = ab8500_btemp_measure_temp(battery) ;
 	return retval ;
 }
 
@@ -1089,8 +1045,6 @@ static int ab8500_btemp_get_property(struct power_supply *psy,
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_HEALTH:
-		val->intval = (di->events.battery_ovv ?POWER_SUPPLY_HEALTH_OVERVOLTAGE : POWER_SUPPLY_HEALTH_GOOD) ;
-		break ;
 	case POWER_SUPPLY_PROP_PRESENT:
 	case POWER_SUPPLY_PROP_ONLINE:
 		if (di->events.batt_rem)
@@ -1143,9 +1097,9 @@ static int ab8500_btemp_get_ext_psy_data(struct device *dev, void *data)
 		if (ext->get_property(ext, prop, &ret))
 			continue;
 
-		if(ext->type == POWER_SUPPLY_TYPE_MAINS)
+		if (ext->type == POWER_SUPPLY_TYPE_MAINS)
 			continue;
-		
+
 		switch (prop) {
 		case POWER_SUPPLY_PROP_PRESENT:
 			switch (ext->type) {
@@ -1154,7 +1108,7 @@ static int ab8500_btemp_get_ext_psy_data(struct device *dev, void *data)
 				if (!ret.intval && di->events.ac_conn) {
 					di->events.ac_conn = false;
 					if (!di->events.usb_conn)
-						ab8500_btemp_periodic(di,temperature_monitoring_no_charging /*false*/);
+						ab8500_btemp_periodic(di, temperature_monitoring_no_charging /*false*/);
 				}
 				/* AC connected */
 				else if (ret.intval && !di->events.ac_conn) {
@@ -1213,7 +1167,6 @@ static struct ab8500_btemp_interrupts ab8500_btemp_irq[] = {
 	{"BTEMP_HIGH", ab8500_btemp_temphigh_handler},
 	{"BTEMP_LOW_MEDIUM", ab8500_btemp_lowmed_handler},
 	{"BTEMP_MEDIUM_HIGH", ab8500_btemp_medhigh_handler},
-	{"BATT_OVV", ab8500_battery_over_voltage_handler},
 };
 
 #if defined(CONFIG_PM)
@@ -1222,10 +1175,10 @@ static int ab8500_btemp_resume(struct platform_device *pdev)
 	struct ab8500_btemp *di = platform_get_drvdata(pdev);
 
 	if (di->events.ac_conn || di->events.usb_conn) {
-		ab8500_btemp_periodic(di, temperature_monitoring_with_charging );
+		ab8500_btemp_periodic(di, temperature_monitoring_with_charging);
 		//ab8500_btemp_periodic(di, true);
-	} else {		
-		ab8500_btemp_periodic(di, temperature_monitoring_no_charging );	
+	} else {
+		ab8500_btemp_periodic(di, temperature_monitoring_no_charging);
 	}
 	return 0;
 }
@@ -1236,7 +1189,7 @@ static int ab8500_btemp_suspend(struct platform_device *pdev,
 	struct ab8500_btemp *di = platform_get_drvdata(pdev);
 
 //	if (di->events.ac_conn || di->events.usb_conn)
-		ab8500_btemp_periodic(di, temperature_monitoring_off );
+		ab8500_btemp_periodic(di, temperature_monitoring_off);
 
 	return 0;
 }
@@ -1249,11 +1202,11 @@ static int __devexit ab8500_btemp_remove(struct platform_device *pdev)
 {
 	struct ab8500_btemp *di = platform_get_drvdata(pdev);
 	int i, irq;
-	battery=NULL ;
+	battery = NULL ;
 #ifdef MAKE_PROC_BATTERY_ID_ENTRY
-	remove_proc_entry("Battery_Res" ,NULL);
+	remove_proc_entry("Battery_Res", NULL);
 #endif //MAKE_PROC_BATTERY_ID_ENTRY
-	ab8500_btemp_periodic(di, temperature_monitoring_off );
+	ab8500_btemp_periodic(di, temperature_monitoring_off);
 
 	/* Disable interrupts */
 	for (i = 0; i < ARRAY_SIZE(ab8500_btemp_irq); i++) {
@@ -1327,9 +1280,6 @@ static int __devinit ab8500_btemp_probe(struct platform_device *pdev)
 		dev_err(di->dev, "failed to create work queue\n");
 		goto free_device_info;
 	}
-
-	INIT_WORK(&di->battery_over_voltage_work,
-		ab8500_battery_over_voltage_work);
 
 	/* Init work for measuring temperature periodically */
 	INIT_DELAYED_WORK_DEFERRABLE(&di->btemp_periodic_work,
@@ -1410,7 +1360,7 @@ static int __devinit ab8500_btemp_probe(struct platform_device *pdev)
 
 #ifdef MAKE_PROC_BATTERY_ID_ENTRY
 
-	di->battery_proc_entry =create_proc_read_entry("Battery_Res",0444,NULL,battery_resistence_readproc,di);
+	di->battery_proc_entry = create_proc_read_entry("Battery_Res", 0444, NULL, battery_resistence_readproc, di);
 #endif //MAKE_PROC_BATTERY_ID_ENTRY
 
 	platform_set_drvdata(pdev, di);
@@ -1423,8 +1373,8 @@ static int __devinit ab8500_btemp_probe(struct platform_device *pdev)
 		dev_dbg(di->dev, "Lowering batt ok sel, ret: %d", ret);
 	}
 
-	ab8500_btemp_periodic(di,temperature_monitoring_no_charging /*false*/);
-	battery=di ;
+	ab8500_btemp_periodic(di, temperature_monitoring_no_charging /*false*/);
+	battery = di ;
 	return ret;
 
 free_irq:

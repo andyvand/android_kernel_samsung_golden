@@ -60,7 +60,7 @@ struct mpuaccel_data{
   atomic_t enable;
   atomic_t poll_delay;
   int device_is_on;
-#ifdef MPUACC_USES_CACHED_DATA  
+#ifdef MPUACC_USES_CACHED_DATA
   unsigned char cached_data[6];
 #endif //MPUACC_USES_CACHED_DATA
 };
@@ -93,7 +93,7 @@ mpu_accel_print_mldl_cfg(struct mldl_cfg *mldl_cfg)
   }
 }
 
-static int 
+static int
 mpu_accel_mutex_lock(struct mpuaccel_data *data)
 {
   mutex_lock(&data->data_mutex);
@@ -101,11 +101,11 @@ mpu_accel_mutex_lock(struct mpuaccel_data *data)
 
 }
 
-static int 
+static int
 mpu_accel_mutex_unlock(struct mpuaccel_data *data)
 {
   mutex_unlock(&data->data_mutex);
-  
+
   return ML_SUCCESS;
 }
 
@@ -115,20 +115,20 @@ mpu_accel_activate_device(struct mpuaccel_data *data, int enable)
 {
   int result = ML_SUCCESS;
   struct mldl_cfg* mldl_cfg = data->mldl_cfg;
-  
+
   if(enable) {
       /*turn on accel*/
       if (NULL != mldl_cfg->accel && NULL != mldl_cfg->accel->resume) {
         result = mldl_cfg->accel->resume(data->accel_handle,
-      				     mldl_cfg->accel,
-      				     &mldl_cfg->pdata->accel);
+					mldl_cfg->accel,
+					&mldl_cfg->pdata->accel);
       }
   } else {
       /*turn off accel*/
       if (NULL != mldl_cfg->accel && NULL != mldl_cfg->accel->suspend) {
         result = mldl_cfg->accel->suspend(data->accel_handle,
-      				     mldl_cfg->accel,
-      				     &mldl_cfg->pdata->accel);
+					mldl_cfg->accel,
+					&mldl_cfg->pdata->accel);
       }
   }
 
@@ -149,12 +149,12 @@ mpu_accel_get_data_from_device(struct mpuaccel_data *data, unsigned char* buffer
 {
   int result = ML_SUCCESS;
   struct mldl_cfg* mldl_cfg = data->mldl_cfg;
-  
+
   if (NULL != mldl_cfg->accel && NULL != mldl_cfg->accel->read) {
     result = mldl_cfg->accel->read(data->accel_handle,
-  				     mldl_cfg->accel,
-  				     &mldl_cfg->pdata->accel,
-  				     buffer);
+				mldl_cfg->accel,
+				&mldl_cfg->pdata->accel,
+				buffer);
   }
 
   return result;
@@ -178,25 +178,25 @@ mpu_accel_get_data(struct mpuaccel_data *data, unsigned char* buffer, int* from_
   struct mldl_cfg* mldl_cfg = data->mldl_cfg;
 
 
-  if(mldl_cfg->accel_is_suspended == 1 || 
+  if(mldl_cfg->accel_is_suspended == 1 ||
     (mldl_cfg->dmp_is_running==0 && mldl_cfg->accel_is_suspended == 0)) {
 
     if(from_mpu!=NULL) *from_mpu = 0;
-  
+
     /*
       Retrieve accel data from accel device driver directly.
     */
    res = mpu_accel_get_data_from_device(data, buffer);
-  } 
-  else if(mldl_cfg->dmp_is_running && 
+  }
+  else if(mldl_cfg->dmp_is_running &&
           mldl_cfg->accel_is_suspended==0) {
 
     if(from_mpu!=NULL) *from_mpu = 1;
-  
+
     /*
       Retrieve accel data from MPU registers(0x23 to 0x28).
-    */            
-    res = mpu_accel_get_data_from_mpu(data, buffer);
+    */
+    res = mpu_accel_get_data_from_device(data, buffer);
   }
 
   return res;
@@ -211,12 +211,12 @@ mpu_accel_build_data(struct mpuaccel_data *data, const unsigned char* buffer, s1
   int dev_id = mldl_cfg->accel->id;
 
   if(endian == EXT_SLAVE_LITTLE_ENDIAN) {
-    if(dev_id == ACCEL_ID_BMA150) 
+    if(dev_id == ACCEL_ID_BMA150)
       *val = (*(s16 *)&buffer[0]) >> 6;
-    else if(dev_id == ACCEL_ID_KXTF9) { 
+    else if(dev_id == ACCEL_ID_KXTF9) {
       *val = (short)(((signed char)buffer[1]<<4)|(buffer[0]>>4));
 	}
-    else 
+    else
       *val = (buffer[1]<<8)|buffer[0];
   }
   else if(endian == EXT_SLAVE_BIG_ENDIAN) {
@@ -235,7 +235,7 @@ mpu_accel_input_work_func(struct work_struct *work)
   int poll_time = 0;
   int enable = 0;
   int i=0;
-  
+
   struct mpuaccel_data *data = container_of((struct delayed_work *)work,
           struct mpuaccel_data, work);
   struct mldl_cfg* mldl_cfg = data->mldl_cfg;
@@ -250,7 +250,7 @@ mpu_accel_input_work_func(struct work_struct *work)
   enable = atomic_read(&data->enable);
   mpu_accel_mutex_unlock(data);
   if(enable) {
-    unsigned char buffer[6]={0,};    
+    unsigned char buffer[6]={0,};
     s16 raw[3]={0,};
     int data_is_avail = 0;
     int data_is_from_mpu = 0;
@@ -273,11 +273,11 @@ mpu_accel_input_work_func(struct work_struct *work)
         data_is_valid = 1;
 
       if(data_is_valid) {
-	
-    	int accel[3] = {0,};
+
+	int accel[3] = {0,};
         /*apply mounting matrix*/
         for(i=0;i<3;i++) {
-#ifdef MPUACC_USES_MOUNTING_MATRIX          
+#ifdef MPUACC_USES_MOUNTING_MATRIX
           int j=0;
           for(j=0;j<3;j++) {
             accel[i] += mldl_cfg->pdata->accel.orientation[i*3+j]*raw[j];
@@ -286,20 +286,20 @@ mpu_accel_input_work_func(struct work_struct *work)
           accel[i] = raw[i];
 #endif
         }
-		
+
         if(MPUACC_DEBUG) {
-          if(data_is_from_mpu==1)           
+          if(data_is_from_mpu==1)
             printk("MPU_ACCEL:[%d][%d][%d]\n", accel[0],accel[1],accel[2]);
           else
             printk("ACCEL:[%d][%d][%d]\n", accel[0],accel[1],accel[2]);
-        }        
-#ifdef MPUACC_USES_CACHED_DATA  
+        }
+#ifdef MPUACC_USES_CACHED_DATA
         memcpy(data->cached_data, buffer, sizeof(unsigned char)*6);
-#endif //#ifdef MPUACC_USES_CACHED_DATA          
+#endif
         input_report_rel(data->input_data, REL_X, accel[0]);
         input_report_rel(data->input_data, REL_Y, accel[1]);
         input_report_rel(data->input_data, REL_Z, accel[2]);
-        input_sync(data->input_data);    
+        input_sync(data->input_data);
         if(MPUACC_DEBUG) {
           printk("input device is updated\n");
         }
@@ -308,7 +308,7 @@ mpu_accel_input_work_func(struct work_struct *work)
   }
   if(MPUACC_DEBUG){
     printk("________________END____________________\n");
-  }  
+  }
   mpu_accel_mutex_lock(data);
   enable = atomic_read(&data->enable);
   mpu_accel_mutex_unlock(data);
@@ -334,19 +334,18 @@ mpu_accel_enable(struct mpuaccel_data *data)
     printk("mpu_accel_enable : %d\n",atomic_read(&data->enable));
   }
 
-  
   if(atomic_read(&data->enable) != 1) {
 
     if(MPUACC_DEBUG){
       printk("mpu_accel_enable : enabled\n");
-    }  
+    }
 
     if(mldl_cfg->accel_is_suspended == 1) {
       if(MPUACC_DEBUG){
         printk("mpu_accel_enable : turn on accel\n");
-      }      
+      }
       mpu_accel_activate_device(data,1);
-    } 
+    }
 
     atomic_set(&data->enable, 1);
     schedule_delayed_work(&data->work, 0);
@@ -369,7 +368,7 @@ mpu_accel_disable(struct mpuaccel_data *data)
   }
 
   if(atomic_read(&data->enable) != 0) {
-    atomic_set(&data->enable, 0);    
+    atomic_set(&data->enable, 0);
     cancel_delayed_work(&data->work);
 
     if(MPUACC_DEBUG){
@@ -379,13 +378,13 @@ mpu_accel_disable(struct mpuaccel_data *data)
     if(mldl_cfg->accel_is_suspended == 1) {
       if(MPUACC_DEBUG){
         printk("mpu_accel_disable : turn off accel\n");
-      }      
-      
+      }
+
       /*turn off accel*/
       mpu_accel_activate_device(data,0);
-    }   
+    }
   }
-  
+
   return res;
 }
 
@@ -463,7 +462,7 @@ mpu_accel_is_active_device(void)
   int is_active = 0;
 
   if(pThisData!=NULL) {
-    mpu_accel_mutex_lock(pThisData);    
+    mpu_accel_mutex_lock(pThisData);
     is_active = pThisData->device_is_on;
     mpu_accel_mutex_unlock(pThisData);
   }
@@ -480,9 +479,9 @@ int mpu_accel_get_cached_data(unsigned char* cache)
     if(pThisData->device_is_on==1) {
       memcpy(cache, pThisData->cached_data, sizeof(unsigned char)*6);
       if(1) {
-        printk("cached data:[%d][%d][%d][%d][%d][%d]\n", 
+        printk("cached data:[%d][%d][%d][%d][%d][%d]\n",
           cache[0],cache[1],cache[2],cache[3],cache[4],cache[5]);
-      }        
+      }
       res = ML_SUCCESS;
     }
 
@@ -502,7 +501,7 @@ static DEVICE_ATTR(enable, S_IRUGO|S_IWUSR|S_IWGRP,
 
 static struct attribute *mpuaccel_attributes[] = {
     &dev_attr_poll_delay.attr,
-    &dev_attr_enable.attr,    
+    &dev_attr_enable.attr,
     NULL
 };
 
@@ -512,14 +511,13 @@ static struct attribute_group mpuaccel_attribute_group = {
 
 
 
-int 
-mpu_accel_init(struct mldl_cfg* mldl_cfg, void* accel_handle) 
+int
+mpu_accel_init(struct mldl_cfg* mldl_cfg, void* accel_handle)
 {
   struct input_dev *input_data = NULL;
   struct mpuaccel_data *data = NULL;
   int res = 0;
 
-  
   data = kzalloc(sizeof(struct mpuaccel_data), GFP_KERNEL);
   if (data == NULL) {
       res = -ENOMEM;
@@ -541,12 +539,11 @@ mpu_accel_init(struct mldl_cfg* mldl_cfg, void* accel_handle)
       printk(KERN_ERR
              "mpu_accel_probe: Failed to allocate input_data device\n");
       goto err;
-  }  
-  
-  
+  }
+
   input_data->name = MPUACCEL_INPUT_NAME;
   input_data->id.bustype = BUS_I2C;
-  
+
   set_bit(EV_REL, input_data->evbit);
   input_set_capability(input_data, EV_REL, REL_X);
   input_set_capability(input_data, EV_REL, REL_Y);
@@ -561,11 +558,11 @@ mpu_accel_init(struct mldl_cfg* mldl_cfg, void* accel_handle)
              "mpu_accel_init: Unable to register input_data device: %s\n",
              input_data->name);
       goto err;
-  }  
-  
+  }
+
   input_set_drvdata(input_data, data);
   mldl_cfg->ext.mpuacc_data = (void*)data;
-  
+
   pThisData = data;
 
   res = sysfs_create_group(&input_data->dev.kobj,
@@ -581,14 +578,13 @@ mpu_accel_init(struct mldl_cfg* mldl_cfg, void* accel_handle)
 
 err:
   sysfs_remove_group(&input_data->dev.kobj,
-          &mpuaccel_attribute_group);    
+          &mpuaccel_attribute_group);
   input_free_device(input_data);
   kfree(data);
-  return res;  
-
+  return res;
 }
 
-int 
+int
 mpu_accel_exit(struct mldl_cfg* mldl_cfg)
 {
   struct mpuaccel_data *data = NULL;
@@ -599,9 +595,9 @@ mpu_accel_exit(struct mldl_cfg* mldl_cfg)
 
   if(data!=NULL) {
     sysfs_remove_group(&(data->input_data->dev.kobj),
-            &mpuaccel_attribute_group);      
+            &mpuaccel_attribute_group);
     input_free_device(data->input_data);
-    
+
     kfree(data);
     data = NULL;
 
@@ -611,7 +607,7 @@ mpu_accel_exit(struct mldl_cfg* mldl_cfg)
   return ML_SUCCESS;
 }
 
-int 
+int
 mpu_accel_suspend(struct mldl_cfg* mldl_cfg)
 {
   int result = ML_SUCCESS;
@@ -628,12 +624,11 @@ mpu_accel_suspend(struct mldl_cfg* mldl_cfg)
     result = mpu_accel_activate_device(data,0);
   }
   mpu_accel_mutex_unlock(data);
-  
+
   return result;
 }
 
-
-int 
+int
 mpu_accel_resume(struct mldl_cfg* mldl_cfg)
 {
   int result = ML_SUCCESS;
@@ -655,7 +650,7 @@ mpu_accel_resume(struct mldl_cfg* mldl_cfg)
 }
 
 
-int 
+int
 mpu_accel_read(struct mldl_cfg* mldl_cfg, unsigned char* buffer)
 {
   int result = ML_SUCCESS;
@@ -668,11 +663,11 @@ mpu_accel_read(struct mldl_cfg* mldl_cfg, unsigned char* buffer)
   mpu_accel_mutex_lock(data);
   enable = atomic_read(&data->enable);
 #ifdef MPUACC_USES_CACHED_DATA
-  if(enable==1) 
+  if(enable==1)
     memcpy(buffer,data->cached_data, sizeof(unsigned char)*6);
   else
 #endif //MPUACC_USES_CACHED_DATA
-  result = mpu_accel_get_data_from_device(data, buffer);  
+  result = mpu_accel_get_data_from_device(data, buffer);
   mpu_accel_mutex_unlock(data);
 
   return result;
